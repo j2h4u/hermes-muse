@@ -151,7 +151,8 @@ owned job 由 `install.JOBS` 定义，cron key 沿用 0.3.x 的名字，这样 j
    - 对到期目标给出 assessment 和 progress_note；`done_suggested` 不关闭目标，但必须带 `evidence` 和 `text`，由 `goals.assess` 转成一条决定型通知（键 `goal:<id>:done:<activity_at>`，同一段活动只问一次），用户确认后由主对话带证据关闭；
    - 复盘候选是 72h 窗口内所有尚未评估的私聊轮次（`review.window` 分页读完整个窗口），不按语言或关键词筛选，从最老的开始，全部进入当晚队列，不设每晚上限。工具失败只作为证据提示。模型的判断中，`agent_gap` 生成 Finding，`friction` 生成带 `tag=friction` 的 Finding（只是建议，不自动改规则或 skill），`latent_need` 生成 Idea；
    - signal 提案由模型 `create` 或 `decline`（两者都算已处理，不计入 stall）；批次的 run 以 ok/degraded 结束时，代码只给已处理的提案写 `proposed_at`（`packets.close`），之后不再提出，未答的下个周期再提；
-   - 只在 `remaining` 为 0 的批次里、当天有实质变化或 `context.memory_changes` 不为空时，用 `content_write` 写 dream 和 alignment，并列出每条记忆改动；该批的 run 以 ok/degraded 结束时 `meta.memory_reported_until` 前移（没有条目的批次也一样，所以不会空唤醒）。
+   - 复盘摘录保留同一轮的全部 assistant 消息；review 的 read 按页返回用户消息及下次用户消息前的全部 assistant 正文。省略的文本不是缺失工作的证据。
+   - 只在 `remaining` 为 0 的批次里，合并本批判断、`context.review_results`（前批尚未汇总的 Finding/Idea，每批最多 20 条）和 `context.memory_changes`，用 `content_write` 更新 dream 和 alignment。区分观察、建议和用户确认的偏好，不自动改原生记忆或规则。未汇总结果会唤醒无条目的汇总批；成功结束才推进 `meta.review_reported_until`，失败后仍待汇总。记忆改动沿用 `meta.memory_reported_until`。
 4. **Feed**（分批排空）：每个 active interest 最多每 20h 研究一次，最久未查的在前；每个作答的兴趣都由 `packets.feed_result` 写 `checked_at`。模型写文章并附 `source_refs`，生成 `feed` 实体，`records.write_feed` 把正文写入 `feed/<key>.md`，静默发布。一篇文章可附一条 `notice`（每个 packet 最多 1 条，priority 只能 ordinary/time_sensitive，`source_ref` 必须是文章来源之一）：经 `notifier.draft` 用 `src:` 强键去重（任一来源 7 天内已有 LIVE notice 时返回 existing），之后走完整门控、与 patrol 共享预算；兴趣不再 active 时由代码撤回。
 5. **Weekly**：输入只有 Health 摘要和 7 天的计数。模型写一条周报，投到用户的路由。只提建议，不改任何东西。
 6. **淡出**（`goals.fade`，在 tick 中运行；默认 3+3 天）：

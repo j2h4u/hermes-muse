@@ -2,6 +2,7 @@
 import sys
 import tempfile
 import unittest
+from importlib.util import find_spec
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -62,6 +63,10 @@ class ReviewAllTurns(unittest.TestCase):
         self.assertIn("пять файлов", first["reply"])
         self.assertIn("процесс сам не возобновится", second["previous_reply"])
         self.assertEqual(first["pointer"], ref)
+        packet = self.kernel.build_packet("nightly")
+        original = self.kernel.read(packet["id"], "review:" + ref)
+        self.assertIn("процесс сам не возобновится", original["text"])
+        self.assertNotIn("Спасибо", original["text"])
 
     def test_final_batch_gets_earlier_findings_and_empty_queue_can_summarize(self):
         for i in range(11):
@@ -83,8 +88,22 @@ class ReviewAllTurns(unittest.TestCase):
         packets.close(self.kernel, retry["id"], "ok", T0)
         self.assertIsNone(self.kernel.build_packet("nightly")["id"])
 
+    def test_summary_bound_does_not_drop_results_with_equal_timestamps(self):
+        for i in range(23):
+            review.record(self.kernel, f"review:chat:{i}", "latent_need" if i == 0 else "friction", f"Observation {i}", T0)
+        first = review.unreported(self.kernel, T0)
+        self.assertEqual(len(first), 20)
+        review.reported(self.kernel, first)
+        rest = review.unreported(self.kernel, T0)
+        self.assertEqual(len(rest), 3)
+        self.assertFalse({r["ref"] for r in first} & {r["ref"] for r in rest})
+        self.assertIn("latent_need", {r["verdict"] for r in first + rest})
+        review.reported(self.kernel, rest)
+        self.assertEqual(review.unreported(self.kernel, T0), [])
+
 
 class ReviewTurnRead(unittest.TestCase):
+    @unittest.skipUnless(find_spec("hermes_state"), "native Hermes source required")
     def test_original_turn_read_is_complete_private_redacted_and_bounded(self):
         import sqlite3
         from hermes_state import SessionDB

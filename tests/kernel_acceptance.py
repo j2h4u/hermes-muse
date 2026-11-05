@@ -75,9 +75,18 @@ class FakeHost:
                             "attachment": len(clean) > 8000, "text": excerpt(clean)})
         return out[:limit]
 
-    def read(self, ref, offset=0, length=12000):
+    def read(self, ref, offset=0, length=12000, *, turn=False):
         row = next(r for r in self.rows if f"{r['session_id']}:{r['id']}" == ref)
         text = redact(row["text"])
+        if turn:
+            parts = []
+            for r in self.rows:
+                if r["session_id"] != row["session_id"] or r["id"] < row["id"] or r["role"] not in ("user", "assistant"):
+                    continue
+                if parts and r["role"] == "user":
+                    break
+                parts.append(f"{r['role']}: {redact(r['text'])}")
+            text = "\n\n".join(parts)
         part = text[offset:offset + min(length, 12000)]
         return {"ref": ref, "available": True, "offset": offset, "total": len(text), "text": part, "more": offset + len(part) < len(text)}
 
@@ -894,7 +903,8 @@ def part_upkeep(base):
     home = make_home(base)
     k = Kernel(home, adapter=host, clock=lambda: clock[0])
     host.stores = {"user": {"entries": ["x"], "chars": 1789, "limit": 1800}, "memory": {"entries": [], "chars": 10, "limit": 3600}}
-    host.add("chat", "user", "I moved to Lisbon", T0 - 60)
+    reviewed = host.add("chat", "user", "I moved to Lisbon", T0 - 60)
+    review.record(k, "review:" + reviewed, "fine", "Already reviewed; this scenario covers memory-only synthesis", T0)
     k.tick()
     packet = k.build_packet("intake")
     asks = [bool(upkeep.full(k, T0)) for _ in range(3)]

@@ -208,12 +208,15 @@ counts and state names come from code.
 4. **Nightly.** Every due goal gets an assessment and progress note. `done_suggested` needs evidence and becomes one
    question to the user per stretch of activity; it never closes a goal. The
    next check moves to 1 day − 6h so the goal is due again the next night. Code offers every unjudged private turn
-   from the last 72h, oldest first, in any language (no per-night cap). The model judges meaning in context;
+   from the last 72h, oldest first, in any language (no per-night cap). All assistant messages are retained;
+   review reads page through the original user/assistant exchange when excerpts omit text. The model judges meaning in context;
    tool failures are optional hints, never an admission gate. The model's `agent_gap`
    becomes a Finding with evidence, `friction` a Finding tagged as a suggestion, and `latent_need` an Idea. Goal proposals (disposed in the last 7 days) are
    offered until the model creates or declines them, no more per day than cron may still create (5); the rest wait for
-   the next period. Batches hold a fixed 10 items. In the last batch, dream and alignment are written when the day changed
-   something, listing every native memory change.
+   the next period. Batches hold a fixed 10 items. `context.review_results` carries up to 20 unreported
+   actionable findings/ideas from previous batches into the final dream and alignment, alongside this batch's verdicts
+   and every native memory change. Results can wake a summary-only batch after the queue is empty; only a successful
+   final run acknowledges its context results. Suggestions remain distinct from user-confirmed preferences.
 5. **Feed.** Each active interest is researched at most once in 20h, longest unchecked first; the model writes
    articles with source refs and they are published silently. One article per packet may carry a notice: its
    source becomes the `src:` notice key (shared with patrol's 7-day history), it passes the same gates (no urgent),

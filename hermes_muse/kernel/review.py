@@ -23,7 +23,7 @@ def turns(rows):
             previous = current.get(sid)
             turn = {"ref": row["ref"], "at": row["at"], "user": row["text"], "replies": [], "tools": [],
                     "previous": previous["user"] if previous else None,
-                    "previous_reply": previous["replies"][-1] if previous and previous["replies"] else None}
+                    "previous_reply": "\n\n".join(previous["replies"]) if previous else None}
             current[sid] = turn
             out.append(turn)
         elif sid in current:
@@ -64,11 +64,28 @@ def candidates(k, now, skip=()):
             continue
         found = rules(turn)
         picked.append({"kind": "review", "ref": ref, "at": turn["at"], "rules": found, "user": clip(turn["user"], 1500),
-                       "reply": clip(turn["replies"][-1] if turn["replies"] else "", 1500),
+                       "reply": clip("\n\n".join(turn["replies"]), 1500),
                        **({"previous_user": clip(turn["previous"], 800)} if turn["previous"] else {}),
                        **({"previous_reply": clip(turn["previous_reply"], 800)} if turn["previous_reply"] else {}),
                        "tools": [{"name": n, "ok": ok} for n, ok in turn["tools"][:10]], "pointer": turn["ref"]})
     return picked
+
+
+def unreported(k, now):
+    """Bounded actionable results from earlier batches, including a completed queue awaiting synthesis."""
+    cursor = tuple(k.store.meta("review_reported_until", [0, ""]))
+    rows = [e for kind, state in (("finding", "open"), ("idea", "active"))
+            for e in k.store.query(kind, state=state, since=now - WINDOW)
+            if e["payload"].get("verdict") in VERDICTS and (e["state_since"], e["id"]) > cursor]
+    return [{"ref": e["id"], "at": e["state_since"], "turn": e["payload"]["turn"],
+             "verdict": e["payload"]["verdict"], "reason": e["payload"]["reason"]}
+            for e in sorted(rows, key=lambda e: (e["state_since"], e["id"]))[:20]]
+
+
+def reported(k, results):
+    """A successful final nightly batch included these results in its synthesis."""
+    if results:
+        k.store.set_meta("review_reported_until", max([r["at"], r["ref"]] for r in results))
 
 
 def record(k, ref, verdict, reason, now, rules=()):

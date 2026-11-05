@@ -112,7 +112,8 @@ def nightly_items(k, n, now, offered):
                  for e in reversed(k.store.query("signal", state="disposed", since=now - PROPOSE_WITHIN))
                  if e["payload"].get("goal_hint") == "new" and not e["payload"].get("proposed_at")
                  and not goals.read(k.home, goals.slug_for(e["natural_key"]))][:goals.cron_creates_left(k, now)]
-    return due + proposals + review.candidates(k, now, skip=offered), {"memory_changes": upkeep.unreported(k, now)}
+    return due + proposals + review.candidates(k, now, skip=offered), {
+        "memory_changes": upkeep.unreported(k, now), "review_results": review.unreported(k, now)}
 
 
 def feed_items(k, n, now, offered):
@@ -128,7 +129,7 @@ BUILDERS = {"intake": intake_items, "patrol": patrol_items, "nightly": nightly_i
 
 
 def empty(items, context):
-    return not items and not (context or {}).get("memory_changes")
+    return not items and not any((context or {}).get(key) for key in ("memory_changes", "review_results"))
 
 
 def view(e, spec):
@@ -210,6 +211,7 @@ def close(k, packet_id, outcome, now):
                       payload=lambda s: {"proposed_at": s["payload"].get("proposed_at") or now}, now=now)
         if not context.get("remaining"):
             upkeep.reported(k, context.get("memory_changes"))
+            review.reported(k, context.get("review_results"))
     elif e["state"] == "submitted":
         patch(k.store, packet_id, expect=("submitted",), reason=f"run:{outcome}", payload={"released": True}, now=now)
     patch(k.store, packet_id, "expired", expect=("issued",), reason=f"run:{outcome}", now=now)
@@ -256,7 +258,7 @@ def read(k, packet_id, ref, offset=0, now=None):
     allowed = min(READ_MAX, READ_TOTAL - packet["payload"]["reads"].get(ref, 0))
     if allowed <= 0:
         return {"ref": ref, "available": False, "reason": "read budget for this item is spent; dispose it from its excerpt"}
-    page = k.adapter.sessions.read(item["pointer"], offset, allowed)
+    page = k.adapter.sessions.read(item["pointer"], offset, allowed, **({"turn": True} if item["kind"] == "review" else {}))
     used = len(page.get("text") or "")
     patch(k.store, packet["id"], reason="read", now=now,
           payload=lambda e: {"reads": {**e["payload"]["reads"], ref: e["payload"]["reads"].get(ref, 0) + used}})

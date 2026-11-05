@@ -288,20 +288,33 @@ class Sessions(Part):
         return turns
 
     @tolerant(lambda: {"available": False})
-    def read(self, ref, offset=0, length=READ_MAX):
-        """At most 12k redacted chars of one message in a private user-surface session."""
+    def read(self, ref, offset=0, length=READ_MAX, *, turn=False):
+        """At most 12k redacted chars of a private message, or its whole user/assistant turn for review."""
         session_id, _, message_id = str(ref).rpartition(":")
         if not self.path.exists():
             return {"ref": ref, "available": False}
         with reader(self.path) as db:
             _, private, args = private_user(db)
             row = db.execute(
-                f"SELECT m.content FROM messages m JOIN sessions s ON s.id = m.session_id "
+                f"SELECT m.content, m.role, m.timestamp, m.id FROM messages m JOIN sessions s ON s.id = m.session_id "
                 f"WHERE m.session_id = ? AND m.id = ? AND {private}",
                 (session_id, message_id, *args)).fetchone()
-        if not row:
-            return {"ref": ref, "available": False}
-        text = redact(as_text(row["content"]))
+            if not row or (turn and row["role"] != "user"):
+                return {"ref": ref, "available": False}
+            text = as_text(row["content"])
+            if turn:
+                parts = []
+                messages = db.execute(
+                    f"SELECT m.role, m.content FROM messages m WHERE m.session_id = ? "
+                    f"AND (m.timestamp, m.id) >= (?, ?) AND m.role IN ('user','assistant') "
+                    f"AND {LIVE_TURN} ORDER BY m.timestamp, m.id",
+                    (session_id, row["timestamp"], row["id"], *HIDDEN_KINDS))
+                for message in messages:
+                    if parts and message["role"] == "user":
+                        break
+                    parts.append(f"{message['role']}: {as_text(message['content'])}")
+                text = "\n\n".join(parts)
+        text = redact(text)
         offset, length = max(0, int(offset)), max(0, min(int(length), READ_MAX))
         part = text[offset:offset + length]
         return {"ref": ref, "available": True, "offset": offset, "total": len(text),
