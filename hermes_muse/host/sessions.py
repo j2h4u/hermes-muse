@@ -310,9 +310,12 @@ class Sessions(Part):
                     f"AND {LIVE_TURN} ORDER BY m.timestamp, m.id",
                     (session_id, row["timestamp"], row["id"], *HIDDEN_KINDS))
                 for message in messages:
+                    body = as_text(message["content"])
+                    if body.strip() == "[SILENT]" or (message["role"] == "user" and body.lstrip().startswith(BACKGROUND)):
+                        continue
                     if parts and message["role"] == "user":
                         break
-                    parts.append(f"{message['role']}: {as_text(message['content'])}")
+                    parts.append(f"{message['role']}: {body}")
                 text = "\n\n".join(parts)
         text = redact(text)
         offset, length = max(0, int(offset)), max(0, min(int(length), READ_MAX))

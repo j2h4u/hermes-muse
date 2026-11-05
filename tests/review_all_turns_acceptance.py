@@ -118,6 +118,7 @@ class ReviewTurnRead(unittest.TestCase):
                 ref = db.execute("INSERT INTO messages(session_id,role,content,timestamp) VALUES('chat','user','Durability?',1)").lastrowid
                 db.executemany("INSERT INTO messages(session_id,role,content,timestamp) VALUES('chat',?,?,?)", [
                     ("assistant", "Process will not resume. api_key=secret12345", 1),
+                    ("user", "[IMPORTANT: Background process completed]", 1.5),
                     ("assistant", "Recovered files. " + "x" * 13000, 2),
                     ("user", "Next question", 3), ("assistant", "Unrelated reply", 4)])
                 hidden = db.execute("INSERT INTO messages(session_id,role,content,timestamp) VALUES('group','user','Private',1)").lastrowid
@@ -125,6 +126,7 @@ class ReviewTurnRead(unittest.TestCase):
             first = host.sessions.read(f"chat:{ref}", turn=True)
             self.assertIn("Process will not resume", first["text"])
             self.assertIn("Recovered files", first["text"])
+            self.assertNotIn("Background process", first["text"])
             self.assertNotIn("secret12345", first["text"])
             self.assertTrue(first["more"])
             self.assertLessEqual(len(first["text"]), 12000)
