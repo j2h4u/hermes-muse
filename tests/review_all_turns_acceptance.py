@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from kernel_acceptance import D, T0, FakeHost, Kernel, make_home, review
+from kernel_acceptance import D, T0, FakeHost, Kernel, make_home, packets, review
 
 
 class ReviewAllTurns(unittest.TestCase):
@@ -51,6 +51,70 @@ class ReviewAllTurns(unittest.TestCase):
         self.assertEqual([item["pointer"] for item in candidates], [failed, retried])
         self.assertEqual(candidates[0]["rules"], ["tool_failure_unretried"])
         self.assertEqual(candidates[1]["rules"], [])
+
+    def test_review_keeps_earlier_assistant_messages(self):
+        ref = self.host.add("chat", "user", "Что переживёт рестарт?", T0 - 30)
+        self.host.add("chat", "assistant", "Доставка durable, процесс сам не возобновится.", T0 - 29)
+        self.host.add("chat", "assistant", "Все пять файлов восстановлены.", T0 - 28)
+        self.host.add("chat", "user", "Спасибо", T0 - 20)
+        first, second = review.candidates(self.kernel, T0)
+        self.assertIn("процесс сам не возобновится", first["reply"])
+        self.assertIn("пять файлов", first["reply"])
+        self.assertIn("процесс сам не возобновится", second["previous_reply"])
+        self.assertEqual(first["pointer"], ref)
+
+    def test_final_batch_gets_earlier_findings_and_empty_queue_can_summarize(self):
+        for i in range(11):
+            self.host.add(f"chat{i}", "user", "Проверим", T0 - 30 + i)
+        first = self.kernel.build_packet("nightly")
+        results = [{"candidate_ref": i["ref"], "verdict": "agent_gap" if n == 0 else "fine",
+                    "reason": "Unverified claim" if n == 0 else "No issue"}
+                   for n, i in enumerate(first["items"])]
+        self.kernel.submit(first["id"], results)
+        packets.close(self.kernel, first["id"], "ok", T0)
+        last = self.kernel.build_packet("nightly")
+        self.assertEqual(last["context"]["remaining"], 0)
+        self.assertEqual([r["reason"] for r in last["context"]["review_results"]], ["Unverified claim"])
+        self.kernel.submit(last["id"], [{"candidate_ref": last["items"][0]["ref"], "verdict": "fine", "reason": "Fine"}])
+        packets.close(self.kernel, last["id"], "failed", T0)
+        retry = self.kernel.build_packet("nightly")
+        self.assertEqual(retry["items"], [])
+        self.assertEqual(retry["context"]["review_results"], last["context"]["review_results"])
+        packets.close(self.kernel, retry["id"], "ok", T0)
+        self.assertIsNone(self.kernel.build_packet("nightly")["id"])
+
+
+class ReviewTurnRead(unittest.TestCase):
+    def test_original_turn_read_is_complete_private_redacted_and_bounded(self):
+        import sqlite3
+        from hermes_state import SessionDB
+        from hermes_muse.host import HostAdapter
+
+        with tempfile.TemporaryDirectory(prefix="muse-review-read-") as tmp:
+            home = Path(tmp)
+            SessionDB(db_path=home / "state.db").close()
+            with sqlite3.connect(home / "state.db") as db:
+                db.executemany("INSERT INTO sessions(id,source,chat_type,started_at) VALUES(?,?,?,0)",
+                               [("chat", "telegram", "dm"), ("group", "telegram", "group")])
+                ref = db.execute("INSERT INTO messages(session_id,role,content,timestamp) VALUES('chat','user','Durability?',1)").lastrowid
+                db.executemany("INSERT INTO messages(session_id,role,content,timestamp) VALUES('chat',?,?,?)", [
+                    ("assistant", "Process will not resume. api_key=secret12345", 1),
+                    ("assistant", "Recovered files. " + "x" * 13000, 2),
+                    ("user", "Next question", 3), ("assistant", "Unrelated reply", 4)])
+                hidden = db.execute("INSERT INTO messages(session_id,role,content,timestamp) VALUES('group','user','Private',1)").lastrowid
+            host = HostAdapter(home)
+            first = host.sessions.read(f"chat:{ref}", turn=True)
+            self.assertIn("Process will not resume", first["text"])
+            self.assertIn("Recovered files", first["text"])
+            self.assertNotIn("secret12345", first["text"])
+            self.assertTrue(first["more"])
+            self.assertLessEqual(len(first["text"]), 12000)
+            rest = host.sessions.read(f"chat:{ref}", offset=12000, turn=True)
+            self.assertFalse(rest["more"])
+            self.assertNotIn("Next question", rest["text"])
+            self.assertNotIn("Unrelated reply", rest["text"])
+            self.assertEqual(host.sessions.read(f"chat:{ref}")["text"], "Durability?")
+            self.assertFalse(host.sessions.read(f"group:{hidden}", turn=True)["available"])
 
 
 if __name__ == "__main__":
