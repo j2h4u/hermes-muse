@@ -1,22 +1,15 @@
-"""Conversation review: code picks every turn of the last 72h of private user sessions that fixed rules flag,
-oldest first; the model only judges each (agent_gap / latent_need / friction / fine). One entity per turn, ever.
+"""Review every unjudged private turn of the last 72h, oldest first, in any language.
 
-Rules: a completion claim with no successful write-type tool result in the same turn; a failed tool not
-retried successfully; a user correction or near-repeat of the previous request; a stated need that matches
-no goal, interest or idea title.
+The model judges agent_gap / latent_need / friction / fine. Tool failures are evidence,
+never an admission gate. Each turn is recorded once.
 """
 import re
-from difflib import SequenceMatcher
 
 from .common import D, clip, one
 
 PAGE = 2000  # host rows per read; the window is read page by page
 WINDOW = 3 * D
 VERDICTS = ("agent_gap", "latent_need", "friction", "fine")
-CLAIM = re.compile(r"已完成|已发送|已修复|已部署|已提交|搞定|\b(?:done|fixed|completed|sent|deployed|resolved)\b", re.I)
-CORRECTION = re.compile(r"不是|还是没|又|我说的是|不对|\b(?:not what I|still (?:not|doesn'?t|broken)|again|I said|that'?s wrong)\b", re.I)
-NEED = re.compile(r"帮我|记得|提醒我|以后|我想|打算|计划|\b(?:remind me|I want to|I'd like to|plan to|don'?t forget|todo)\b", re.I)
-WRITE_TOOL = re.compile(r"write|edit|patch|send|create|update|delete|commit|deploy|memory|terminal|manage|cron|todo", re.I)
 FAILED = re.compile(r'"(?:success|ok)"\s*:\s*false|"error"\s*:\s*"[^"]|"status"\s*:\s*"(?:error|failed)"'
                     r'|^\s*(?:error|failed|traceback)\b', re.I | re.M)
 
@@ -41,17 +34,10 @@ def turns(rows):
     return out
 
 
-def rules(turn, titles):
-    found, tools, user = [], turn["tools"], turn["user"]
-    if CLAIM.search("\n".join(turn["replies"])) and not any(ok and WRITE_TOOL.search(name) for name, ok in tools):
-        found.append("claim_without_write")
+def rules(turn):
+    found, tools = [], turn["tools"]
     if any(not ok and not any(ok2 and name2 == name for name2, ok2 in tools[i + 1:]) for i, (name, ok) in enumerate(tools)):
         found.append("tool_failure_unretried")
-    previous = turn["previous"]
-    if CORRECTION.search(user) or previous and len(user) >= 8 and SequenceMatcher(None, previous[:500], user[:500]).ratio() >= 0.8:
-        found.append("user_correction")
-    if NEED.search(user) and not any(len(t) >= 3 and t in user.lower() for t in titles):
-        found.append("unrecorded_need")
     return found
 
 
@@ -69,20 +55,18 @@ def window(k, since):
 
 
 def candidates(k, now, skip=()):
-    """Every matching turn, oldest first; turns already judged or in `skip` (offered tonight) are left out."""
+    """Every private turn, oldest first; judged or already offered turns are left out."""
     rows = window(k, now - WINDOW)
-    titles = [str(e["payload"].get("title") or "").lower() for kind in ("goal", "interest", "idea") for e in k.store.query(kind)]
     picked = []
     for turn in turns(rows):
         ref = "review:" + turn["ref"]
         if ref in skip or one(k.store, "finding", ref) or one(k.store, "idea", ref):
             continue
-        found = rules(turn, titles)
-        if not found:
-            continue
+        found = rules(turn)
         picked.append({"kind": "review", "ref": ref, "at": turn["at"], "rules": found, "user": clip(turn["user"], 1500),
                        "reply": clip(turn["replies"][-1] if turn["replies"] else "", 1500),
-                       **({"previous_reply": clip(turn["previous_reply"], 800)} if "user_correction" in found and turn["previous_reply"] else {}),
+                       **({"previous_user": clip(turn["previous"], 800)} if turn["previous"] else {}),
+                       **({"previous_reply": clip(turn["previous_reply"], 800)} if turn["previous_reply"] else {}),
                        "tools": [{"name": n, "ok": ok} for n, ok in turn["tools"][:10]], "pointer": turn["ref"]})
     return picked
 

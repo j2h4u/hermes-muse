@@ -19,7 +19,7 @@ What code guarantees and what is left to the model. **Code**: deterministic, cov
 | Whether something is worth a notice, and its wording | Model | patrol verdict, text, priority, topic |
 | Notice dedupe, quiet hours, budgets, `urgent_per_day`, blocked topics | Code | notice key against 7 days of history; gate computes `next_eligible` |
 | Delivery and reconciliation | Code | one owned no-agent `muse-deliver` job prints due notices (every 10 min, urgent wakes it); receipts per run execution; unknown outcomes are never resent |
-| Conversation review | Code + Model | code picks ≤10 candidates a day by rules; the model judges `agent_gap` (Finding) or `latent_need` (Idea) |
+| Conversation review | Code + Model | every unjudged private turn of the last 72h, in fixed batches of 10 without a language filter; the model judges `agent_gap`, `friction`, `latent_need` or `fine` |
 | Interests and Ideas | Code | 14-day expiry; only user input renews |
 | Feed articles | Model | up to 3 interests a day without a recent article; published silently, browsable on the Muse page |
 | Dreams, alignment, people and group pages, working lessons | Model | written through `content_write` with revision CAS |

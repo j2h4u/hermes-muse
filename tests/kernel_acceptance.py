@@ -557,10 +557,10 @@ def part_goals(base):
     packet = seen(k.build_packet("nightly"))
     kinds = [i["kind"] for i in packet["items"]]
     reviews = [i for i in packet["items"] if i["kind"] == "review"]
-    check("R1 nightly batch: goals, then proposals, then review candidates oldest first; rules claim/tool failure/correction/need",
+    check("R1 nightly batch: goals, then proposals, then every private turn oldest first; tool failures are hints",
           kinds == sorted(kinds, key=["goal", "signal", "review"].index) and reviews and reviews[0]["at"] <= reviews[-1]["at"]
           and packet["context"]["remaining"] > 0
-          and every_rule == {"claim_without_write", "tool_failure_unretried", "user_correction", "unrecorded_need"},
+          and every_rule == {"tool_failure_unretried"},
           {"kinds": kinds, "rules_all_candidates": sorted(every_rule)})
     results = [{"candidate_ref": i["ref"], "verdict": "agent_gap" if n == 0 else "fine", "reason": "claimed without evidence"}
                for n, i in enumerate(reviews)]
@@ -738,7 +738,7 @@ def part_intake_drain(base):
 
 
 def part_reviews(base):
-    """Every flagged turn is judged the same night in batches; proposals are made once and look back 7 days."""
+    """Every private turn is judged the same night in batches; proposals are made once and look back 7 days."""
     clock = [T0 - 2 * D]
     host = FakeHost(lambda: clock[0])
     home = make_home(base)
@@ -768,11 +768,11 @@ def part_reviews(base):
     proposed = k.store.query("signal", natural_key=old)[0]["payload"].get("proposed_at")
     clock[0] = T0 + D
     second = k.build_packet("nightly")
-    check("N4 no review cap: all 40 flagged turns judged tonight in fixed batches of JOBS.nightly.items, none left for the "
+    check("N4 no review cap: all 41 private turns judged tonight in fixed batches of JOBS.nightly.items, none left for the "
           "next night; a proposal disposed two days ago is offered once; Health's drain jobs are the kernel's",
           sizes[:4] == [packets.JOBS["nightly"]["items"]] * 4 and
           invariants.DRAINS == tuple(j for j, spec in packets.JOBS.items() if spec.get("drain"))
-          and judged == 40 and kinds.count("review") == 40 and kinds.count("signal") == 1 and proposed == T0 and second["id"] is None,
+          and judged == 41 and kinds.count("review") == 41 and kinds.count("signal") == 1 and proposed == T0 and second["id"] is None,
           {"judged": judged, "kinds": len(kinds), "second": second["id"], "sizes": sizes})
     return k
 

@@ -207,8 +207,9 @@ counts and state names come from code.
    Updates of one event wait 6 hours after the last send, except urgent ones and questions; the newest replaces what waits.
 4. **Nightly.** Every due goal gets an assessment and progress note. `done_suggested` needs evidence and becomes one
    question to the user per stretch of activity; it never closes a goal. The
-   next check moves to 1 day − 6h so the goal is due again the next night. Code picks review candidates from the last
-   72h by rules, oldest first, all of them the same night (no per-night cap). The model's `agent_gap`
+   next check moves to 1 day − 6h so the goal is due again the next night. Code offers every unjudged private turn
+   from the last 72h, oldest first, in any language (no per-night cap). The model judges meaning in context;
+   tool failures are optional hints, never an admission gate. The model's `agent_gap`
    becomes a Finding with evidence, `friction` a Finding tagged as a suggestion, and `latent_need` an Idea. Goal proposals (disposed in the last 7 days) are
    offered until the model creates or declines them, no more per day than cron may still create (5); the rest wait for
    the next period. Batches hold a fixed 10 items. In the last batch, dream and alignment are written when the day changed

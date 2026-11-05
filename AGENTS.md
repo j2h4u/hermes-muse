@@ -149,7 +149,7 @@ owned job 由 `install.JOBS` 定义，cron key 沿用 0.3.x 的名字，这样 j
    - 队列按顺序为：全部到期目标（不封顶，deadline 早的在前）、7 天内 `goal_hint=new` 且未提过的提案（不超过 cron 当天剩余的建目标额度，其余留到下个周期）、复盘候选；每批固定 10 条，`context.remaining` 是本批之后的剩余数；
    - 批次的条目在其 run 以 ok/degraded 结束时算作已消费，当晚不再提供；expired 批次的条目、以及 run 失败或被放弃的批次中未作答的条目会重新提供；run 结束后由 `runs.relay` 接力唤醒；
    - 对到期目标给出 assessment 和 progress_note；`done_suggested` 不关闭目标，但必须带 `evidence` 和 `text`，由 `goals.assess` 转成一条决定型通知（键 `goal:<id>:done:<activity_at>`，同一段活动只问一次），用户确认后由主对话带证据关闭；
-   - 复盘候选由代码按规则在 72h 窗口内挑选（`review.window` 分页读完整个窗口），从最老的开始，全部进入当晚队列，不设每晚上限。模型的判断中，`agent_gap` 生成 Finding，`friction` 生成带 `tag=friction` 的 Finding（只是建议，不自动改规则或 skill），`latent_need` 生成 Idea；
+   - 复盘候选是 72h 窗口内所有尚未评估的私聊轮次（`review.window` 分页读完整个窗口），不按语言或关键词筛选，从最老的开始，全部进入当晚队列，不设每晚上限。工具失败只作为证据提示。模型的判断中，`agent_gap` 生成 Finding，`friction` 生成带 `tag=friction` 的 Finding（只是建议，不自动改规则或 skill），`latent_need` 生成 Idea；
    - signal 提案由模型 `create` 或 `decline`（两者都算已处理，不计入 stall）；批次的 run 以 ok/degraded 结束时，代码只给已处理的提案写 `proposed_at`（`packets.close`），之后不再提出，未答的下个周期再提；
    - 只在 `remaining` 为 0 的批次里、当天有实质变化或 `context.memory_changes` 不为空时，用 `content_write` 写 dream 和 alignment，并列出每条记忆改动；该批的 run 以 ok/degraded 结束时 `meta.memory_reported_until` 前移（没有条目的批次也一样，所以不会空唤醒）。
 4. **Feed**（分批排空）：每个 active interest 最多每 20h 研究一次，最久未查的在前；每个作答的兴趣都由 `packets.feed_result` 写 `checked_at`。模型写文章并附 `source_refs`，生成 `feed` 实体，`records.write_feed` 把正文写入 `feed/<key>.md`，静默发布。一篇文章可附一条 `notice`（每个 packet 最多 1 条，priority 只能 ordinary/time_sensitive，`source_ref` 必须是文章来源之一）：经 `notifier.draft` 用 `src:` 强键去重（任一来源 7 天内已有 LIVE notice 时返回 existing），之后走完整门控、与 patrol 共享预算；兴趣不再 active 时由代码撤回。
@@ -323,7 +323,7 @@ Hermes 宿主
 | Watch / watch slot | 为开放 Goal 定时检查的 owned job / 它的序号 `n` 和 cron key | kind `watch`、`goals.watch_slot`、`install.ensure_watch` |
 | Interest / Idea / FeedItem | 短期兴趣 / 稍后再说的想法 / 一篇 Feed 文章（Store 记录 + md 正文） | kind `interest`/`idea`/`feed`、`kernel/records.py` |
 | records | 主会话的记录与删除：interest/idea、feedback、forget、Feed 记录与文件 | `kernel/records.py` |
-| review candidate / Finding | 由代码按规则挑选的复盘轮次 / 复盘中确认的 agent 失误 | `kernel/review.py`、kind `finding` |
+| review candidate / Finding | 最近 72 小时内所有尚未评估的私聊轮次，不按语言或关键词筛选 / 复盘中确认的 agent 失误 | `kernel/review.py`、kind `finding` |
 | memory_receipt | 失败或待批准的原生记忆写入提示 | kind `memory_receipt`、`kernel/receipts.py` |
 | Run / outcome | 一次被唤醒的 job 执行 / 由代码计算的执行结果 | kind `run`、`kernel/runs.py` |
 | tombstone / forget | 遗忘标记 / 用户要求删除 | kind `tombstone`、`records.forget` |
@@ -566,7 +566,7 @@ Hermes 宿主
 - 0.4.1 遗留的 `sending` Notice 如果当时还没交给宿主（没有 one-shot job），升级后不再补发：回执为 `unknown(no_delivery_job)`，48h 后 `closed_unknown`，由 Health 报告。
 - `health_deliver` 只会被追加到 health job 的路由里；删掉这个设置不会移除路由，需要用户自己改 job 的投递目标。
 - 强键是 `src:<上游ID>`，不带 `source_id` 前缀，这样才能与没有记录 source_id 的 0.3.x 历史互相匹配（见 `keys.notice_key` 的 docstring）。
-- 复盘规则用正则匹配中英文关键词，属于启发式。
+- 复盘由模型逐条判断所有尚未评估的私聊轮次；工具失败只作为提示，不决定是否进入复盘。
 - 已标注的 shortcut：
   - 迁移来的 watch 如果没有 expires，给 30 天（`migrate._watches`）；
   - 安装时解析不了 prompt 的旧 watch 保留原 prompt，需要用户重建（`install.jobs`）；

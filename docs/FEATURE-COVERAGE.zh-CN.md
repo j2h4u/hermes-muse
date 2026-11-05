@@ -17,7 +17,7 @@
 | 是否值得通知、措辞 | 模型 | patrol 的 verdict、text、priority、topic |
 | Notice 去重、静默时段、预算、`urgent_per_day`、blocked_topics | 代码 | notice key 对 7 天历史去重；gate 计算 `next_eligible` |
 | 投递与对账 | 代码 | 一个固定的 no_agent `muse-deliver` job 打印到期通知（每 10 分钟，urgent 立即唤醒）；按 run 的 execution 读回执；结果未知不重发 |
-| 对话复盘 | 代码 + 模型 | 代码按规则每天挑 ≤10 个候选；模型判断 `agent_gap`（Finding）或 `latent_need`（Idea） |
+| 对话复盘 | 代码 + 模型 | 最近 72 小时所有尚未评估的私聊轮次，不按语言筛选，每批 10 条；模型判断 `agent_gap`、`friction`、`latent_need` 或 `fine` |
 | Interest 与 Idea | 代码 | 14 天到期；只有用户输入能续期 |
 | Feed 文章 | 模型 | 每天最多 3 个近期无文章的 interest；静默发布，可在 Muse 页面浏览 |
 | dream、alignment、人物/群组页、工作经验 | 模型 | 经 `content_write` 按 revision CAS 写入 |
