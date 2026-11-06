@@ -96,7 +96,7 @@ def main():
             pause_job(job["id"], reason="user pause")
         again = host.cron.ensure("patrol", schedule="every 1h", entry=entry, prompt="Patrol v2.")
         assert again["id"] == job["id"] and not again["enabled"] and again["prompt"] == "Patrol v2.", again
-        script = home / "scripts" / "hermes-muse-patrol.py"
+        script = home / "scripts" / "hermes-muse" / "hermes-muse-patrol.py"
         ran = subprocess.run([sys.executable, str(script)], cwd=base, capture_output=True, text=True, check=True)
         assert json.loads(ran.stdout) == {"home": str(home), "job": "patrol"}, ran.stdout
         assert set(host.cron.jobs()) == {job["id"]}
@@ -238,7 +238,7 @@ def main():
 
         # 0.4.1 one-shot deliveries: still read by key until settled, then removed with their launcher.
         from cron.jobs import create_job
-        legacy = host.cron.write_script("hermes-muse-deliver-k1.py", "print('old')\n")
+        legacy = host.cron.write_script("hermes-muse/hermes-muse-deliver-k1.py", "print('old')\n")
         with profile_scope(home):
             k1 = create_job(prompt=None, schedule="2099-01-01T00:00:00+00:00", name="muse-deliver-k1", deliver="telegram",
                             script=legacy, no_agent=True)["id"]

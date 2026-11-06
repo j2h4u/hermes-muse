@@ -148,7 +148,7 @@ def main():
 
         # Execute every generated owned launcher, with actual host APIs but no scheduler or transport.
         for key in ("memory-upkeep", "proactive-watch", "nightly-review", "feed-pulse", "weekly-governance-review", "health"):
-            script = home / "scripts" / f"hermes-muse-{key}.py"
+            script = home / "scripts" / "hermes-muse" / f"hermes-muse-{key}.py"
             run = subprocess.run([sys.executable, str(script)], env=os.environ, cwd=base, capture_output=True, text=True, encoding="utf-8", timeout=60)
             assert run.returncode == 0, (key, run.stderr)
         report = json.loads((home / "muse/health.json").read_text(encoding="utf-8"))

@@ -197,7 +197,7 @@ def main():
 
         # -- the no_agent cron entrypoint ----------------------------------------------------------
         cron_job = health.ensure_cron(host, "bot-chat")
-        launcher = home / "scripts" / "hermes-muse-health.py"
+        launcher = home / "scripts" / "hermes-muse" / "hermes-muse-health.py"
         ran = subprocess.run([sys.executable, str(launcher)], cwd=base, capture_output=True, text=True,
                              env={**os.environ, "PYTHONPATH": os.pathsep.join(p for p in sys.path if p)})
         report3 = health.load(home)

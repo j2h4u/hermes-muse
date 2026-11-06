@@ -34,9 +34,9 @@ def main():
         run("-m", "hermes_cli.main", "plugins", "remove", "hermes-muse")
         assert not (home / "plugins/hermes-muse").exists()
         assert (home / "muse/install.json").exists()
-        run(str(home / "scripts/hermes-muse-memory-upkeep.py"))
+        run(str(home / "scripts/hermes-muse/hermes-muse-memory-upkeep.py"))
         # Simulate the documented AI cleanup using the recorded ownership, preserving unrelated jobs.
-        run("-c", "from hermes_constants import get_hermes_home; from cron.jobs import list_jobs,remove_job; h=get_hermes_home(); owned=[j for j in list_jobs(True) if str(j.get('script') or '').startswith('hermes-muse-')]; [remove_job(j['id']) for j in owned]; assert [j['name'] for j in list_jobs(True)]==['keep-me']; [(h/'scripts'/j['script']).unlink(missing_ok=True) for j in owned]")
+        run("-c", "from hermes_constants import get_hermes_home; from cron.jobs import list_jobs,remove_job; h=get_hermes_home(); owned=[j for j in list_jobs(True) if str(j.get('script') or '').startswith('hermes-muse/hermes-muse-')]; [remove_job(j['id']) for j in owned]; assert [j['name'] for j in list_jobs(True)]==['keep-me']; [(h/'scripts'/j['script']).unlink(missing_ok=True) for j in owned]")
         assert (home / "SOUL.md").read_text() == "Preserve this identity.\n"
         print("PASS: official GitHub install -> first host load -> six tasks -> official remove -> owned-only cleanup; identity and unrelated jobs preserved")
 

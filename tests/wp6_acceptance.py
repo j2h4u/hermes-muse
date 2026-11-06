@@ -69,6 +69,57 @@ def prompt(key):
     return (ROOT / "prompts" / "jobs" / f"{JOBS[key][0]}.md").read_text()
 
 
+def part_launchers(base):
+    """Native migration preserves all job fields and never moves a user's similarly named script."""
+    from cron.jobs import create_job, get_job, pause_job
+    from cron.scheduler_script import _run_job_script
+    from hermes_muse.host import HostAdapter, profile_scope
+    from hermes_muse.install import JOBS
+    home = base / "launchers"
+    home.mkdir()
+    adapter = HostAdapter(home)
+    with profile_scope(home):
+        before = []
+        for key in (*JOBS, "health", "monthly-system-audit", "watch-one", "deliver-old"):
+            script = adapter.cron.write_script(f"hermes-muse-{key}.py", "print('launcher works')\n")
+            job = create_job(prompt="Keep this prompt", schedule="every 2h", name=f"muse-{key}",
+                             script=script, deliver="telegram", skills=["companion"], model="custom-model", provider="custom")
+            if key in ("health", "watch-one"):
+                pause_job(job["id"], reason="user pause")
+            before.append(get_job(job["id"]))
+        user = home / "scripts" / "hermes-muse-personal.py"
+        user.write_text("print('user script')\n")
+        unrelated = create_job(prompt="User", schedule="every 2h", script=user.name)
+        orphan = home / "scripts" / "hermes-muse-orphan.py"
+        orphan.write_text(V1_HEADER + "print('obsolete')\n")
+        adapter.cron.migrate_scripts()
+        after = [get_job(job["id"]) for job in before]
+        check("launcher migration: native job ids and every setting survive; only script paths change",
+              all(new == {**old, "script": "hermes-muse/" + old["script"]} for old, new in zip(before, after)))
+        check("launcher migration: old generated files removed; user script and job preserved; orphan removed",
+              all(not (home / "scripts" / old["script"]).exists() for old in before)
+              and user.read_text() == "print('user script')\n" and get_job(unrelated["id"]) == unrelated
+              and not orphan.exists() and not (home / "scripts" / "hermes-muse" / orphan.name).exists())
+        ok, out = _run_job_script(after[0]["script"])
+        check("launcher migration: scheduler executes subdirectory launcher", ok and out.strip() == "launcher works", out)
+        adapter.cron.migrate_scripts()
+        check("launcher migration: idempotent and job ownership still recognized",
+              all(get_job(job["id"]) == job for job in after)
+              and set(adapter.cron.owned_jobs()) == {job["id"] for job in after})
+        legacy = adapter.cron.write_script("hermes-muse-collision.py", "print('owned')\n")
+        collision = create_job(prompt="Keep", schedule="every 2h", script=legacy)
+        destination = home / "scripts" / "hermes-muse" / legacy
+        destination.write_text("print('user destination')\n")
+        try:
+            adapter.cron.migrate_scripts()
+            refused = False
+        except ValueError:
+            refused = True
+        check("launcher migration: unrelated destination blocks migration without deleting the old script or changing its job",
+              refused and get_job(collision["id"]) == collision and (home / "scripts" / legacy).exists()
+              and destination.read_text() == "print('user destination')\n")
+
+
 def part_install(home, ids):
     from hermes_muse.host import HostAdapter
     from hermes_muse.install import MARKER, PROMPTS_BACKUP, install, route
@@ -76,7 +127,7 @@ def part_install(home, ids):
     first = install(adapter, ROOT)
     jobs = {j["id"]: j for j in __import__("cron.jobs", fromlist=["x"]).list_jobs(include_disabled=True)}
     refreshed = {k: jobs[i] for k, i in ids.items() if k in V1_KEYS}
-    health_job = next((j for j in jobs.values() if j.get("script") == "hermes-muse-health.py"), None)
+    health_job = next((j for j in jobs.values() if j.get("script") == "hermes-muse/hermes-muse-health.py"), None)
     check("install: v1 state migrated, marker removed, templates created",
           first["migration"] and first["migration"].get("reason") != "already_migrated" and not (home / MARKER).exists()
           and (home / "muse" / "state-v2.db").is_file() and "AGENTS.md" in first["templates"],
@@ -106,9 +157,9 @@ def part_install(home, ids):
     waiting = notifier.claim(k, deliver_job, "e-legacy", time.time())[0]["payload"]["delivery_key"]
     legacy = {}
     for key in ("old1", waiting):
-        adapter.cron.write_script(f"hermes-muse-deliver-{key}.py", "print('old')\n")
+        adapter.cron.write_script(f"hermes-muse/hermes-muse-deliver-{key}.py", "print('old')\n")
         legacy[key] = create_job(prompt=None, schedule="2099-01-01T00:00:00+00:00", name=f"muse-deliver-{key}",
-                                 deliver="bot-chat", script=f"hermes-muse-deliver-{key}.py", no_agent=True)["id"]
+                                 deliver="bot-chat", script=f"hermes-muse/hermes-muse-deliver-{key}.py", no_agent=True)["id"]
         update_job(legacy[key], {"enabled": False, "state": "completed"})
     again = install(adapter, ROOT)
     after = {j["id"]: j for j in __import__("cron.jobs", fromlist=["x"]).list_jobs(include_disabled=True)}
@@ -117,7 +168,7 @@ def part_install(home, ids):
           and set(after) == set(jobs) | {legacy[waiting]} and again["prompts_backed_up"] is False, {"jobs": len(after)})
     check("install: settled 0.4.1 one-shot deliveries removed with their launcher; one awaiting its receipt kept; user jobs untouched",
           again["one_shots_removed"] == 1 and legacy["old1"] not in after and legacy[waiting] in after and ids["keep-me"] in after
-          and not (home / "scripts" / "hermes-muse-deliver-old1.py").exists(), {"removed": again["one_shots_removed"]})
+          and not (home / "scripts" / "hermes-muse/hermes-muse-deliver-old1.py").exists(), {"removed": again["one_shots_removed"]})
     return adapter
 
 
@@ -133,7 +184,7 @@ def part_entry(home, ids):
     user_turn(home, "chat", "Book the dentist for next week", now)  # after the migration watermark
     execution = create_execution(ids["memory-upkeep"], source="test")
     mark_execution_running(execution["id"])
-    ok, out = _run_job_script("hermes-muse-memory-upkeep.py")  # the real launcher, as the scheduler runs it
+    ok, out = _run_job_script("hermes-muse/hermes-muse-memory-upkeep.py")  # the real launcher, as the scheduler runs it
     line = json.loads(out.strip().splitlines()[-1]) if ok and out.strip() else {}
     packet = line.get("packet") or {}
     runs = Store.for_home(home, readonly=True).query("run", natural_key=execution["id"])
@@ -170,7 +221,7 @@ def part_entry(home, ids):
     for _ in range(3):
         execution = create_execution(deliver_id, source="test")
         mark_execution_running(execution["id"])
-        printed.append((execution["id"], *_run_job_script("hermes-muse-deliver.py")))
+        printed.append((execution["id"], *_run_job_script("hermes-muse/hermes-muse-deliver.py")))
     claimed = Store.for_home(home, readonly=True).get(notice["id"])
     check("deliver run: a changed `deliver` preference becomes the job's route (that run silent); then the launcher prints "
           "the due notice as plain stdout (no model), claimed for that execution on the new route; the next run is silent",
@@ -190,7 +241,7 @@ def part_entry(home, ids):
     (home / "config.yaml").write_text("timezone: UTC\nplugins:\n  enabled: []\n")
     silent["disabled"] = entry.run(home, "proactive-watch")
     (home / "config.yaml").write_text(config)
-    ok, out = _run_job_script("hermes-muse-monthly-system-audit.py")
+    ok, out = _run_job_script("hermes-muse/hermes-muse-monthly-system-audit.py")
     check("pre-run: silent (wakeAgent false) for unknown keys, old delivery keys, inactive watch, marker, disabled plugin",
           all(v["wakeAgent"] is False for v in silent.values()) and ok and not _parse_wake_gate(out),
           {k: v["reason"] for k, v in silent.items()})
@@ -206,14 +257,14 @@ def part_hooks(home, ids):
     started = time.monotonic()
     hooks = runtime.register(ctx, plugin_root=ROOT)
     took = time.monotonic() - started
-    installs = [t for t in threading.enumerate() if t.name == "hermes-muse-install"]
+    installs = [t for t in threading.enumerate() if t.name == "hermes-muse/hermes-muse-install"]
     [t.join() for t in installs]
     names = [c[0] for c in ctx.calls]
     marks = {p.name: p.read_text() for p in (home / "muse" / "loaded").iterdir()}
     ctx.calls.clear()
     ctx._load_abandoned = True  # Hermes passed its load deadline
     runtime.register(ctx, plugin_root=ROOT)
-    [t.join() for t in threading.enumerate() if t.name == "hermes-muse-install"]
+    [t.join() for t in threading.enumerate() if t.name == "hermes-muse/hermes-muse-install"]
     kept = (home / "muse" / "loaded" / str(os.getpid())).read_text()
     check("register: registrations only (install in the background, no Store opened), this process marked loaded; a "
           "late abandoned load does not undo it", installs and took < 2 and marks.get(str(os.getpid())) == "ok"
@@ -372,7 +423,7 @@ def part_marker(home, ids):
     code = killed()
     left = json.loads(marker.read_text())
     state = installer.migrating(home)
-    ok, out = _run_job_script("hermes-muse-deliver.py")  # the real launcher, as the scheduler runs it
+    ok, out = _run_job_script("hermes-muse/hermes-muse-deliver.py")  # the real launcher, as the scheduler runs it
     check("killed install: marker without error reads stale; the next launcher installs, clears it and runs its job "
           "(deliver: nothing due; its stdout would be delivered, so the install adds nothing to it)",
           code == 9 and "error" not in left and state.get("stale") and ok and out.strip() == ""
@@ -478,7 +529,7 @@ def part_rollback(home, ids, adapter):
     out = cutover.rollback(adapter)
     jobs = {j["id"]: j for j in list_jobs(include_disabled=True)}
     restored = all(jobs[ids[k]]["prompt"].startswith(f"[hermes-muse:abc123:{k}]") for k in V1_KEYS)
-    paused = {j["script"]: j["state"] for j in jobs.values() if j.get("script") in ("hermes-muse-health.py", "hermes-muse-deliver.py")}
+    paused = {j["script"]: j["state"] for j in jobs.values() if j.get("script") in ("hermes-muse/hermes-muse-health.py", "hermes-muse/hermes-muse-deliver.py")}
     check("rollback: marker set, bridge ran, 0.3.x prompts with markers restored, monthly resumed, Health and deliver paused",
           (home / MARKER).exists() and out["bridge"] and restored and jobs[ids["monthly-system-audit"]]["enabled"]
           and jobs[ids["weekly-governance-review"]]["state"] == "paused" and set(paused.values()) == {"paused"} and len(paused) == 2,
@@ -486,7 +537,7 @@ def part_rollback(home, ids, adapter):
     (home / MARKER).unlink()  # cancel the rollback: reload v2
     reloaded = upgrade(adapter, ROOT)  # what a load runs: the rollback made it install again
     jobs = {j["id"]: j for j in list_jobs(include_disabled=True)}
-    states = {j["script"]: j["state"] for j in jobs.values() if j.get("script") in ("hermes-muse-health.py", "hermes-muse-deliver.py")}
+    states = {j["script"]: j["state"] for j in jobs.values() if j.get("script") in ("hermes-muse/hermes-muse-health.py", "hermes-muse/hermes-muse-deliver.py")}
     check("cancelled rollback: reinstall resumes the Health and deliver jobs the rollback paused; the user's pause stays",
           set(states.values()) == {"scheduled"} and len(reloaded["resumed"]) == 2
           and jobs[ids["weekly-governance-review"]]["state"] == "paused", {"states": states, "resumed": reloaded["resumed"]})
@@ -537,6 +588,7 @@ def main():
     import store_v2_acceptance as wp2
     with tempfile.TemporaryDirectory(prefix="muse-wp6-") as temporary:
         base = Path(temporary).resolve()
+        part_launchers(base)
         home = base / "profile"
         (home / "workspace").mkdir(parents=True)
         (home / "config.yaml").write_text("timezone: UTC\nplugins:\n  enabled: [hermes-muse]\n")
