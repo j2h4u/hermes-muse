@@ -66,12 +66,15 @@ Hermes Muse 是一个独立的 Hermes 插件（standalone plugin，MIT）。它�
 
 ### 2.2 授权模型（可检验规则）
 
-1. **调用方只有一个分类函数**：`host.sessions.caller()`（经 `HostAdapter.caller(session_id, **host_kwargs)` 调用）返回 `user | cron | child | group | other`。工具和 hooks 都用它，Signal 捕获用同一份 `USER_SOURCES`。判定规则：
-   - 会话行存在时，**存储的 `sessions.source` 决定**；本次调用的 platform 参数和继承来的 session 环境变量只能收紧，不能放宽；
+1. **调用方只有一个分类函数**：`host.sessions.caller()`（经 `HostAdapter.caller(session_id, **host_kwargs)` 调用）返回 `user | cron | child | automation | group | other`。工具和 hooks 都用它，Signal 捕获用同一份 `USER_SOURCES`。三类事实都取宿主给出的语义，各自独立判定：
+   - **自动化**：显式委派调用上下文是 `child`；cron 会话是 `cron`；宿主注入用户会话的轮次（cron 输出、后台进程完成、委派结果）是 `automation`，依据是该轮用户消息上宿主盖的 machinery `display_kind`（`gateway.response_filters.is_machinery_display_kind`；宿主盖章之前存下的行看生产者前缀 `sessions.BACKGROUND`，`sessions.machinery`）。LLM hook 取宿主传入的 `conversation_history` 里本轮的用户消息，工具调用读该会话最新的用户行（Hermes 在本轮第一次模型调用前落库）；
+   - **群聊**：本轮的 chat type 是群聊即 `group`；
+   - **用户本人的私聊**：会话行存在时，**存储的私聊生产者（`user_source_of`）决定**；本轮的界面（宿主 `platform` kwarg，否则 `hermes_cli.plugin_session.session_surface()`：LOCAL 轮次取启动策略的客户端，聊天取平台；进程内 TUI 只绑定 session source）只能收紧，不能放宽。传输名 `local` 不是界面，不参与授权；LOCAL 的标签与客户端对照取宿主的 `gateway.session_policy.SURFACES`/`STORED_AS_LOCAL`（`sessions.local_surfaces`）；
    - 没有会话行时，只认宿主本次调用传入的 `platform` kwarg，单独的环境变量不算证据；
    - 不在 `USER_SOURCES` 里（含空值、未分类值）一律是 `other`；群聊是 `group`；显式委派调用上下文是 `child`，存储的父会话不改变压缩或 `/branch` 用户会话的授权。
    - 隐藏会话是 `other`，只有 Hermes 的规范 Bot Chat 例外（`sessions.BOT_CHAT`：生来隐藏，靠确切标题识别，它就是主会话）；
    - 只有 `user` 构成授权，也只有 `user` 的轮次会收到注入。CLI/TUI 靠存储的 `sessions.source`（`cli`、`tui`）识别。
+   - 拒绝 `other` 时报错为 `sessions.UNRECOGNIZED`，Health 的 `main_session` 在主会话的工具结果里找它。
 2. **`user`（私聊主会话）**：可以使用 `muse_manage` 的全部 16 个动作。Goal 的状态和设置只能在这里修改；例外只有规则建的目标（`goals.create(by="rule")`）：用户写的规则构成授权，分派 `done` 带证据后由代码置 `done`。`status=done` 必须带 `evidence`（链接、提交、文件路径或一句可核对的观测），由代码校验。
 3. **`cron`（job run）** 只能做这些：
    - `muse_job` 的 read/observe/submit，ref 必须属于本 run 拿到的 packet（`packets.packet_of` 校验，packet ID 不可猜）；
@@ -79,7 +82,7 @@ Hermes Muse 是一个独立的 Hermes 插件（standalone plugin，MIT）。它�
    - `submit.goals.create` 必须引用 packet 里的用户 signal，每天最多 5 个；
    - patrol 只能按 `RULES.md` 命中的规则答 `dispatch`/`forwarded`（规则目标不占上面的额度，事件线一个目标），并提交分派状态；
    - 对 Goal 只能追加 progress 和 assessment（`done_suggested` 转成问用户，不关闭）。
-4. **`child`（委派子代理）**只读。**`group`、`other`** 一律拒绝。
+4. **`child`（委派子代理）**只读。**`automation`（注入用户会话的后台轮次）**即使落在 Bot Chat 里也不是用户：读类动作全部允许；写入只允许助手自己的跟进记账，按 `surface.AUTOMATION`（`MAIN` 旁的按动作授权表）判定：`goal_update`（`status=cancelled` 除外，取消由用户决定）、`assignment_record`、`assignment_update`（`state=running` 除外，它写入的是用户的答复）；其余写入等用户本人的轮次。**`group`、`other`** 一律拒绝。
 5. **内核代码**可以做：
    - 执行 TTL exit、推进 next_check；
    - 发淡出询问，并执行淡出取消；
@@ -161,7 +164,7 @@ owned job 由 `install.JOBS` 定义，cron key 沿用 0.3.x 的名字，这样 j
    - 询问被撤回、过期、失败、closed_unknown 或 superseded 时，attempt+1 重问，最多 3 次；3 次都失败时写 `fade_blocked`，由 Health 报告；
    - 询问确实送达（notice `sent`）后，按 `dispatched_at + goal_fade_days` 算出 `fade_at` 写进 goal payload；到期仍无活动时由代码取消目标；`goal_update(status=active)` 可复活；
    - waiting 的目标同样淡出。扣住目标的只有：未来的 Goal `deadline` 字段、活跃 watch、活跃分派（`waiting` 3 天转 `stalled` 后不再扣住）、运行中的原生 owner、`no_fade`；模型不能撤回或 supersede 淡出询问。
-7. **Health**：`health_entry.py` 调 `health.run()`，写出 `muse/health.json`（`model_input`/`tool_errors` 只统计 Muse 自己的工具 `muse_manage`、`muse_job` 的结果；`plugin_load` 报告运行 job 的 Hermes 进程放弃了 Muse 的加载；`main_session` 绕过授权谓词读 Bot Chat 的用户轮次（`sessions.main_sessions`），近 6 小时有轮次而调用方不是 `user`，或超过 1 小时的轮次一条 signal 都没捕获时报 high）。告警有 4 个出口，**都不经过 Notifier**（内核坏了也能被发现）：
+7. **Health**：`health_entry.py` 调 `health.run()`，写出 `muse/health.json`（`model_input`/`tool_errors` 只统计 Muse 自己的工具 `muse_manage`、`muse_job` 的结果；`plugin_load` 报告运行 job 的 Hermes 进程放弃了 Muse 的加载；`main_session` 绕过授权谓词读 Bot Chat 的用户轮次（`sessions.main_sessions`），近 6 小时有轮次而会话行不是用户的、窗口内有 Muse 工具调用以 `UNRECOGNIZED` 被拒，或超过 1 小时的轮次一条 signal 都没捕获时报 high）。告警有 4 个出口，**都不经过 Notifier**（内核坏了也能被发现）：
    - 主会话注入；
    - Dashboard 的 `/health`；
    - cron stdout，只在告警集合变化时输出；
@@ -172,14 +175,17 @@ owned job 由 `install.JOBS` 定义，cron key 沿用 0.3.x 的名字，这样 j
    - `post_tool_call` 把原生 memory 写入的 failed/staged 结果交给 `receipts.record`：`host.sessions.memory_result` 区分待批（staged，含 `pending_id` 和审批命令）、容量已满（capacity）、参数错误（invalid）、配置关闭（disabled）和其他；`receipts.explain` 说清原因和下一步，staged 要说明怎么批准、整理后是否仍有效（add 有空间就能批准；patch/remove 钉在匹配时的条目上，条目变了就被拒绝）；
    - 例外：`pre_tool_call` 和 `post_tool_call` 对 Muse 自己的 intake run（hook 的 `task_id` 以 `cron:<memory-upkeep 的 job id>:` 开头，`host.sessions.run_of`；不读会话行）执行流程 1 的记忆整理守卫和记录；
    - `post_llm_call` 在后台运行一次 tick；用户静默 5 分钟后，满足 `intake.quiet_wake` 时唤醒 `memory-upkeep`，每天最多 3 次。
-9. **安装/升级**（`install.install`，持有 `muse/install.lock`）。`runtime.register` 只建对象并注册 Skill、prompt 段、工具和 hooks（`Kernel.store` 首次使用才打开），然后在后台线程 `hermes-muse-install` 里跑 install（不是 daemon：CLI 这类短命进程也会加载插件，退出前要跑完 install，否则会留下迁移标记让所有 job 静默）：Hermes 给 import + register 一个期限（默认 10s），超时就放弃这次加载、丢掉之后的所有注册，而冷启动时多个 Hermes 进程同时加载插件，install 要等 profile 锁、SQLite 写者和宿主的 cron 锁。注册完成后 `HostAdapter.loaded()` 记下本进程的加载是否算数（`muse/loaded/<pid>`：`ok` 或 `abandoned`，按宿主的 `_load_abandoned`）；launcher 的父进程就是运行该 job 的进程，它放弃了加载时，需要模型的 job 静默（reason 指向 `plugin_load`），`muse-deliver` 不需要模型照常投递，Health 报 high `plugin_load`。迁移标记存在且没有 error 时（install 进行中），工具返回 `host_unavailable`。步骤：
+9. **安装/升级**（`install.install`，持有 `muse/install.lock`）。`runtime.register` 只建对象并注册 Skill、prompt 段、工具和 hooks（`Kernel.store` 首次使用才打开），然后在后台线程 `hermes-muse-install` 里跑 install（不是 daemon：CLI 这类短命进程也会加载插件，退出前要跑完 install，否则会留下迁移标记让所有 job 静默）：Hermes 给 import + register 一个期限（默认 10s），超时就放弃这次加载、丢掉之后的所有注册，而冷启动时多个 Hermes 进程同时加载插件，install 要等 profile 锁、SQLite 写者和宿主的 cron 锁。注册完成后 `HostAdapter.loaded()` 记下本进程的加载是否算数（`muse/loaded/<pid>`：`ok` 或 `abandoned`，按宿主的 `_load_abandoned`）；launcher 的父进程就是运行该 job 的进程，它放弃了加载时，需要模型的 job 静默（reason 指向 `plugin_load`），`muse-deliver` 不需要模型照常投递，Health 报 high `plugin_load`。迁移标记存在且没有 error 时（install 进行中或被杀），工具返回 `host_unavailable`。
+   - **只在有事可做时进入安装窗口**（`install.upgrade`）：`muse/installed.json` 的指纹（`install.fingerprint`：home、插件路径、代码、prompt、模板、manifest）与当前一致，没有标记，且 job、health job、模板都在、job prompt 未变（`install.current`）时，不拿锁、不写标记直接返回；等锁的进程拿到锁后再判断一次，所以并发加载只有一个安装。`install.install` 本身无条件执行（`cutover.py apply`）；`cutover.py rollback` 删除这份记录，之后加载 v2 必定重装。
+   - **标记的判定只在 `install.migrating`**：带 error 的是失败（静默并告知主会话，下次加载重试；launcher 不碰它，rollback 的标记也属此类）；没有 error 时看 `install.lock`：被持有是安装中；空闲说明进程已死（操作系统释放锁，不看 pid，半截标记也算），返回 `stale`。所有调用方都静默；launcher（`entry.run`）遇到 `stale` 先经 `upgrade` 重装再继续，因为任务全静默时，运行中的 gateway 不会再加载插件，等下一次加载可能等不到。
+   步骤：
    1. 写迁移标记 `muse/migrating.json`；
    2. 执行一次 v1 → v2 迁移；
    3. 从模板补齐缺失的内容文件，不覆盖已有文件；
    4. 首次刷新前备份 0.3.x 的 job prompt；
    5. 原地刷新 owned job（含 no_agent 的 `muse-deliver`）和 watch，并删除已结清的 0.4.1 one-shot 投递 job（`notifier.sweep`）；
    6. 创建或刷新 Health cron；恢复暂停原因为 `install.ROLLED_BACK`（取消回滚）的 owned job，用户自己的暂停不动；
-   7. 删除标记。
+   7. 写 `muse/installed.json`，删除标记。
    - 失败时标记保留并写入错误：job 和后台 tick 保持静默，主会话会收到提示。
 
 ## 3. 系统架构
@@ -231,7 +237,7 @@ Hermes 宿主
   - 不 import 应用层和入口。
 - 共享基础只依赖 stdlib 和 `host/`（`content_io` 通过 `host.interrupted()` 判断宿主中断），不依赖 kernel 和应用层。所有内容文件只能通过 `content_io.Files`（O_NOFOLLOW 逐级打开 + revision CAS）和 `locks.file_lock`（`mutations.lock`）写入。
 - 应用层之间允许的依赖只有两类：
-  - 依赖 `install` 的 `JOBS`、`owned`、`migrating`、`ensure_watch`（job 归属和迁移标记的唯一来源）；
+  - 依赖 `install` 的 `JOBS`、`owned`、`migrating`、`upgrade`、`ensure_watch`（job 归属和迁移标记的唯一来源）；
   - 依赖 `health` 的只读函数 `load`、`summary`、`injection`。
 - `health/` 依赖 `host/` 和只读的 `kernel.store`。它**不调用 kernel 业务、不走 Notifier、不修复数据**，这样内核出 bug 时仍能被发现。
 - 模型面只有 `surface.py`：工具 schema、校验、授权和分发都由 `MAIN`/`JOB_ACTIONS` 这一张表生成。
@@ -241,7 +247,7 @@ Hermes 宿主
 - `sessions`：
   - `user_turns(since, roles, limit)`：按来源白名单、私聊、脱敏、摘录返回会话轮次；
   - `read(ref, offset, length)`：单次 ≤12k，已脱敏；
-  - `source_of(session_id)`（原始来源）、`user_source_of(session_id)`（私聊生产者；LOCAL/Photon 规则见 DESIGN 的 Authorization）、`main_sessions(since)`（只供 Health）、`job_of`、`cron_sessions`、`tool_results`、`sources`、`bot_chats`、`schema_gaps`。
+  - `source_of(session_id)`（原始来源）、`user_source_of(session_id)`（私聊生产者；LOCAL/Photon 规则见 DESIGN 的 Authorization）、`main_sessions(since)`（只供 Health）、`latest_turn(session_id)`（调用方判定本轮是否宿主注入）、`job_of`、`cron_sessions`、`tool_results`、`sources`、`bot_chats`、`schema_gaps`。
 - `cron`：
   - `ensure(key, …)` 创建或刷新自有 job `muse-<key>`（launcher 为 `scripts/hermes-muse-<key>.py`）；
   - `job(key)` 按 cron key 找自有 job；`pause`、`wake`、`jobs`、`owned_jobs`、`executions`；
@@ -262,7 +268,8 @@ Hermes 宿主
 |---|---|---|
 | `muse/state-v2.db` | Store v2：`entity`、`event`（保留 30 天）、`meta`（`intake_since`、`migration`、每日计数） | 只有 kernel 写；Health、views、Dashboard 只读；禁止手改 |
 | `muse/state.db` | 0.3.x 旧库，迁移后置为只读（0400） | 只有 `rollback-bridge` 可以写回 |
-| `muse/migrating.json` | 迁移标记；存在时 job 和后台 tick 保持静默 | 只有 `install` 和 `cutover rollback` 写 |
+| `muse/migrating.json` | 迁移标记；存在时 job 和后台 tick 保持静默，有效性只由 `install.migrating` 判定 | 只有 `install` 和 `cutover rollback` 写 |
+| `muse/installed.json` | 最后一次完成的安装的指纹 | `install` 写；`cutover rollback` 删 |
 | `muse/backup/cron-prompts-0.3.json` | 首次刷新前的 0.3.x job prompt，供回滚恢复 | `install.backup_prompts`，只写一次 |
 | `muse/install.json` | 0.3.x 写的安装记录；v2 只在迁移 watch 时读取 | 只读 |
 | `muse/health.json` | 健康报告，原子替换写入 | 只有 Health 写 |
@@ -286,7 +293,7 @@ Hermes 宿主
 | profile home | 当前 Hermes profile 的绝对目录。每次调用都显式传入，不依赖进程默认值 | `host.resolve_home`、`Kernel.home` |
 | HostAdapter / probe / host fault / host_error | 出站唯一适配层 / 对宿主能力和语义的自检 / 一次被容错吞掉的宿主调用失败 / 读失败时返回的状态值，区别于“宿主说没有” | `host/`、`PROBES`、`@tolerant`、`HOST_ERROR` |
 | 入站入口 | 接收宿主插件 API 调用的文件 | 第 3.1 节 |
-| caller kind | 调用方分类：`user|cron|child|group|other`，只有 `user` 构成授权 | `host.sessions.caller`、`HostAdapter.caller` |
+| caller kind | 调用方分类：`user|cron|child|automation|group|other`，只有 `user` 构成授权；`automation` 是宿主注入用户会话的后台轮次 | `host.sessions.caller`、`HostAdapter.caller` |
 | Kernel / tick | 确定性内核门面 / 幂等、按依赖顺序执行所有到期处理 | `Kernel`、`Kernel.tick`、`Store.tick` |
 | Store v2 / entity / kind / event | 存储 / 一条状态记录 / 记录的类型（第 2.1 节的 14 种）/ 一次状态迁移的日志 | `kernel/store/`、`MACHINES` |
 | natural_key | 由代码派生的业务身份键。默认在同一 kind 内永久唯一 | `kernel/store/keys.py` |
@@ -328,7 +335,8 @@ Hermes 宿主
 | memory_receipt | 失败或待批准的原生记忆写入提示 | kind `memory_receipt`、`kernel/receipts.py` |
 | Run / outcome | 一次被唤醒的 job 执行 / 由代码计算的执行结果 | kind `run`、`kernel/runs.py` |
 | tombstone / forget | 遗忘标记 / 用户要求删除 | kind `tombstone`、`records.forget` |
-| migration marker | 安装或回滚期间让所有 job 静默的标记文件 | `install.migrating`、`muse/migrating.json` |
+| migration marker / stale | 安装或回滚期间让所有 job 静默的标记文件 / 安装进程已死、没有 error 的标记 | `install.migrating`、`muse/migrating.json` |
+| install fingerprint | 决定加载时要不要安装的内容摘要 | `install.fingerprint`、`muse/installed.json` |
 | Health / invariant / health item | 独立健康服务 / 不变量 / 一条检查结果（`health.json` 的 `invariants[]`；模型面 `read(kind=status).health.items[]`） | `hermes_muse/health/` |
 | action table | 生成工具 schema 的唯一表 | `surface.MAIN`（muse_manage）、`surface.JOB_ACTIONS`（muse_job） |
 | content kind / revision | 内容文件的类别 / 文件内容的 sha256（新文件用 `absent`） | `surface.CONTENT`、`content_io.revision` |
@@ -378,7 +386,7 @@ Hermes 宿主
 - packet：同一 job 同一时刻只有一个 `issued`，并发调用拿到同一个 packet；drain job 同一周期内可有多批 submitted；ref 只在本 packet 内有效；submit 按条目幂等，可边做边交。
 - 投递：muse-deliver run 先在一个事务内认领 `sending` 并写入 `delivery_key` 和本次 `execution_id`，再把消息打印为 stdout；回执只按该 execution 读取，已认领的 Notice 不会再被认领或重发。**结果未知的外部写入不得盲目重发**。
 - 文件：GOAL.md 和内容文件必须持有 `mutations.lock`，并通过 `expected_revision` CAS 写入。冲突时返回 `revision_conflict`，调用方需重读并合并。
-- 安装：同一 profile 同时只有一个 install（`install.lock`）；迁移标记存在期间，launcher 和后台 tick 都不推进状态。
+- 安装：同一 profile 同时只有一个 install（`install.lock`）；迁移标记存在期间，launcher 和后台 tick 都不推进状态（launcher 重装 `stale` 标记除外）。
 - **payload 字段以写入方为准**：读取别的模块写的 payload 字段时，字段名以写入方的代码为准；测试必须用写入方的函数产生数据，不得手写 payload。
 - 共享文件和后台任务之间的竞争属于正确性问题，不能当作“偶发”问题处理。
 
@@ -570,6 +578,7 @@ Hermes 宿主
 - 复盘由模型逐条判断所有尚未评估的私聊轮次；工具失败只作为提示，不决定是否进入复盘。
 - 已标注的 shortcut：
   - 迁移来的 watch 如果没有 expires，给 30 天（`migrate._watches`）；
+  - `install.current` 不检查 launcher 文件和 watch job：它们被手动删除后，要到下次代码变化或 `cutover.py apply` 才恢复；
   - 安装时解析不了 prompt 的旧 watch 保留原 prompt，需要用户重建（`install.jobs`）；
   - hooks 的“只在变化时注入”记在进程内存中，进程重启后摘要会再注入一次（`hooks.Hooks`）；
   - 加载记录按 pid：一个已退出加载进程的 pid 被复用时，记录要到下一次加载时才清掉（`HostAdapter.load_failed`）；

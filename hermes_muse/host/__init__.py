@@ -74,6 +74,27 @@ def exclusive(fd):
         msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
 
 
+def unlocked(fd):
+    """Whether fd's lock is free right now; never waits and leaves it free."""
+    if os.name != "nt":
+        import fcntl
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return False
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return True
+    import msvcrt
+    os.lseek(fd, 0, os.SEEK_SET)
+    try:
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+    except OSError:
+        return False
+    os.lseek(fd, 0, os.SEEK_SET)
+    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+    return True
+
+
 HOST_ERROR = "host_error"
 
 
@@ -185,12 +206,13 @@ class HostAdapter:
             return datetime.now().astimezone()
 
     def caller(self, session_id="", **kwargs):
-        """user | cron | child | group | other for the current hook or tool call (host kwargs, never tool
-        arguments); the one classification hooks and tools share. Unknown fails closed as `other`."""
+        """user | cron | child | automation | group | other for the current hook or tool call (host kwargs, never
+        tool arguments); the one classification hooks and tools share. Unknown fails closed as `other`."""
         from .sessions import caller
         try:
             return caller(stored_source=lambda: self.sessions.user_source_of(session_id),
-                          stored_transport=lambda: self.sessions.source_of(session_id), **kwargs)
+                          stored_transport=lambda: self.sessions.source_of(session_id),
+                          latest_turn=lambda: self.sessions.latest_turn(session_id), **kwargs)
         except Exception as exc:
             self.fault("adapter.caller", exc)
             return "other"
