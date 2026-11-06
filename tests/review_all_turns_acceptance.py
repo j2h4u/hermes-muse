@@ -121,12 +121,15 @@ class ReviewTurnRead(unittest.TestCase):
                     ("user", "[IMPORTANT: Background process completed]", 1.5),
                     ("assistant", "Recovered files. " + "x" * 13000, 2),
                     ("user", "Next question", 3), ("assistant", "Unrelated reply", 4)])
+                db.execute("INSERT INTO messages(session_id,role,content,timestamp,display_kind) "
+                           "VALUES('chat','user','Injected event',1.7,'internal_notification')")
                 hidden = db.execute("INSERT INTO messages(session_id,role,content,timestamp) VALUES('group','user','Private',1)").lastrowid
             host = HostAdapter(home)
             first = host.sessions.read(f"chat:{ref}", turn=True)
             self.assertIn("Process will not resume", first["text"])
             self.assertIn("Recovered files", first["text"])
             self.assertNotIn("Background process", first["text"])
+            self.assertNotIn("Injected event", first["text"])
             self.assertNotIn("secret12345", first["text"])
             self.assertTrue(first["more"])
             self.assertLessEqual(len(first["text"]), 12000)
