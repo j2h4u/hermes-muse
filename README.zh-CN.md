@@ -125,7 +125,7 @@ Muse 不带连接器。patrol 只通过你的 Hermes 已有的工具读邮件、
 
 ## 文件
 
-`<profile home>/muse/` 下：`state-v2.db`（Store v2，只有内核写）、`health.json`、`workspace/goals/<slug>/GOAL.md`（目标事实源）、`memory/`、`dreams/`、`memory/people|groups/`、`workspace/your_files/feed/*.md`、`AGENTS.md`、`TOOLS.md`、`PROACTIVE_PREFERENCES.md`、`RULES.md`、`DECISIONS.md`；升级后还有只读的 `state.db` 和 `backup/cron-prompts-0.3.json`。launcher 是 `<profile home>/scripts/hermes-muse-*.py`。Muse 从不修改 SOUL、`memories/`、`cron/jobs.json` 和 Hermes 的数据库。留存说明见[兼容与留存](docs/CATALOG-COMPATIBILITY.md#retention)和 [SECURITY.md](SECURITY.md)。
+`<profile home>/muse/` 下：`state-v2.db`（Store v2，只有内核写）、`health.json`、`workspace/goals/<slug>/GOAL.md`（目标事实源）、`memory/`、`dreams/`、`memory/people|groups/`、`workspace/your_files/feed/*.md`、`AGENTS.md`、`TOOLS.md`、`PROACTIVE_PREFERENCES.md`、`RULES.md`、`DECISIONS.md`；升级后还有只读的 `state.db` 和 `backup/cron-prompts-0.3.json`。launcher 是 `<profile home>/scripts/hermes-muse/hermes-muse-*.py`。Muse 从不修改 SOUL、`memories/`、`cron/jobs.json` 和 Hermes 的数据库。留存说明见[兼容与留存](docs/CATALOG-COMPATIBILITY.md#retention)和 [SECURITY.md](SECURITY.md)。
 
 ## 卸载
 

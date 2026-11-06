@@ -139,7 +139,7 @@ Owned jobs keep their 0.3.x cron keys so ids, user schedules, routes and pauses 
 | deliver | deliver (no agent) | every 10 minutes | user route |
 
 `monthly-system-audit` is paused (merged into weekly), `muse-health` is a no-agent cron every 30 minutes, and each
-Watch is its own owned job. Every launcher runs `scripts/hermes-muse-<key>.py` → `cron_entry.py` → `entry.run`,
+Watch is its own owned job. Every launcher runs `scripts/hermes-muse/hermes-muse-<key>.py` → `cron_entry.py` → `entry.run`,
 which checks that the plugin is enabled and no migration marker exists, runs `Kernel.tick()`, builds the job's
 output and prints one JSON line; `{"wakeAgent": false}` keeps the model asleep. The `deliver` job never calls a
 model: it prints the message itself (plain text, empty when nothing is due) and Hermes delivers that stdout.

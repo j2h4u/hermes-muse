@@ -1,6 +1,6 @@
 # Retained changes
 
-This fork follows upstream and retains one behavior: nightly review includes every unjudged
+This fork follows upstream and retains semantic review: nightly review includes every unjudged
 private conversation turn from the existing 72-hour window. Semantic classification uses the
 model assigned to the nightly Hermes job. No classifier service or keyword admission gate is used.
 All assistant messages in a turn, previous-turn context and optional tool-failure evidence accompany
@@ -14,3 +14,8 @@ Coverage: `tests/review_all_turns_acceptance.py` and the nightly cases in
 `tests/kernel_acceptance.py`. Reassess this change on upstream updates; retire it when upstream
 provides equivalent language-independent review. Install a committed revision through Hermes
 plugin management instead of editing the deployed plugin tree.
+
+Generated launchers live together in `scripts/hermes-muse/`. Installation moves previous generated
+flat launchers through the native cron API, preserving job IDs, settings and history, and removes
+obsolete generated files only after no job references them. User scripts stay untouched.
+Upstream 0.5.3 does not supersede the semantic review, full-turn or cross-batch synthesis changes.

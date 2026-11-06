@@ -25,6 +25,7 @@ from pathlib import Path
 from . import health
 from .content_io import Files
 from .host import PLUGIN
+from .host.cron import key_of
 from .kernel import Kernel, notifier
 from .kernel.common import preferences
 from .kernel.store import Store
@@ -159,7 +160,7 @@ def jobs(adapter, root, store):
         job = by_id.get(w["payload"].get("job_id"))
         check = job and (w["payload"].get("check") or watch_check(job.get("prompt")))
         if check:  # shortcut: a watch whose prompt Muse cannot parse keeps it; the user recreates it
-            key = job["script"][len("hermes-muse-"):-3]
+            key = key_of(job["script"])
             out[key] = (ensure_watch(adapter, root, key, schedule=job.get("schedule"), check=check,
                                      stop_condition=w["payload"].get("stop_condition")) or {}).get("id")
     return out
@@ -176,6 +177,7 @@ def install(adapter, root, now=None):
         marker.write_text(json.dumps(mark), encoding="utf-8")
         try:
             report = {"migration": migrate(home, now=now) if (home / "muse" / "state.db").is_file() else None}
+            adapter.cron.migrate_scripts()
             store = Store.for_home(home)
             report["templates"] = templates(home, root)
             report["prompts_backed_up"] = backup_prompts(adapter)

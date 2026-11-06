@@ -131,7 +131,7 @@ Events reach Muse when the patrol polls, every 30 minutes. For faster ones, poin
 
 ## Files
 
-Under `<profile home>/muse/`: `state-v2.db` (Store v2, written only by the kernel), `health.json`, `workspace/goals/<slug>/GOAL.md` (goal source of truth), `memory/`, `dreams/`, `memory/people|groups/`, `workspace/your_files/feed/*.md`, `AGENTS.md`, `TOOLS.md`, `PROACTIVE_PREFERENCES.md`, `RULES.md`, `DECISIONS.md`, and after an upgrade the read-only `state.db` and `backup/cron-prompts-0.3.json`. Launchers are `<profile home>/scripts/hermes-muse-*.py`. Muse never edits SOUL, `memories/`, `cron/jobs.json` or Hermes's databases. Retention: [compatibility and retention](docs/CATALOG-COMPATIBILITY.md#retention), [SECURITY.md](SECURITY.md).
+Under `<profile home>/muse/`: `state-v2.db` (Store v2, written only by the kernel), `health.json`, `workspace/goals/<slug>/GOAL.md` (goal source of truth), `memory/`, `dreams/`, `memory/people|groups/`, `workspace/your_files/feed/*.md`, `AGENTS.md`, `TOOLS.md`, `PROACTIVE_PREFERENCES.md`, `RULES.md`, `DECISIONS.md`, and after an upgrade the read-only `state.db` and `backup/cron-prompts-0.3.json`. Launchers are `<profile home>/scripts/hermes-muse/hermes-muse-*.py`. Muse never edits SOUL, `memories/`, `cron/jobs.json` or Hermes's databases. Retention: [compatibility and retention](docs/CATALOG-COMPATIBILITY.md#retention), [SECURITY.md](SECURITY.md).
 
 ## Remove
 
