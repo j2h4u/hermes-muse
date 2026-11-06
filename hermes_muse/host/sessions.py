@@ -340,13 +340,13 @@ class Sessions(Part):
             if turn:
                 parts = []
                 messages = db.execute(
-                    f"SELECT m.role, m.content FROM messages m WHERE m.session_id = ? "
+                    f"SELECT m.role, m.content, m.display_kind FROM messages m WHERE m.session_id = ? "
                     f"AND (m.timestamp, m.id) >= (?, ?) AND m.role IN ('user','assistant') "
                     f"AND {LIVE_TURN} ORDER BY m.timestamp, m.id",
                     (session_id, row["timestamp"], row["id"], *HIDDEN_KINDS))
                 for message in messages:
                     body = as_text(message["content"])
-                    if body.strip() == "[SILENT]" or (message["role"] == "user" and body.lstrip().startswith(BACKGROUND)):
+                    if body.strip() == "[SILENT]" or (message["role"] == "user" and machinery(message["display_kind"], body)):
                         continue
                     if parts and message["role"] == "user":
                         break
