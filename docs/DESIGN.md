@@ -138,7 +138,7 @@ Owned jobs keep their 0.3.x cron keys so ids, user schedules, routes and pauses 
 | weekly-governance-review | weekly | Sunday 21:15 | user route |
 | deliver | deliver (no agent) | every 10 minutes | user route |
 
-`monthly-system-audit` is paused (merged into weekly), `muse-health` is a no-agent cron every 30 minutes, and each
+`monthly-system-audit` is paused (merged into weekly), `muse-health` checks every 30 minutes, and each
 Watch is its own owned job. Every launcher runs `scripts/hermes-muse/hermes-muse-<key>.py` → `cron_entry.py` → `entry.run`,
 which checks that the plugin is enabled and no migration marker exists, runs `Kernel.tick()`, builds the job's
 output and prints one JSON line; `{"wakeAgent": false}` keeps the model asleep. The `deliver` job never calls a
@@ -276,8 +276,8 @@ voice and carry no Muse signature, so the delivered text also reads as the assis
 plus invariants over the Store, deliveries, Muse's own tool results (`muse_manage`, `muse_job`; other tools' output
 belongs to the host and the user's tools), jobs, the main session (`main_session`) and the plugin load (`plugin_load`). Each health item has an id, level
 (`ok/low/medium/high`), detail, evidence and fix. Alerts never use the Notifier; they reach the user through the
-main-session injection, the Dashboard and Desktop page, cron stdout when the alert set changes, and an optional
-`health_deliver` route added as a second target of the health job, so Hermes delivers the same stdout to both.
+main-session injection, the Dashboard and Desktop page, and a health job that asks an agent to phrase changed alerts.
+Unchanged alerts do not wake the agent. An optional `health_deliver` route adds a second target for the same message.
 Health itself writes only that file. So that a problem does not end there, a medium or high item still open after a day is
 turned by a kernel tick step (`notifier.health_followup`, reading `health.json`) into one notice for the main session,
 once per incident and withdrawn if it clears before delivery; the weekly digest lists every open item.

@@ -27,7 +27,8 @@ def seed_state(home, job_id):
     SessionDB(db_path=home / "state.db").close()  # native schema
     now = time.time()
     db = sqlite3.connect(home / "state.db")
-    sessions = [("chat", "cli", "dm", "Plans", str(home)), ("bot", "cli", "dm", "Bot Chat", "/workspace"),
+    missing_cwd = str(home / "missing-bot-cwd")
+    sessions = [("chat", "cli", "dm", "Plans", str(home)), ("bot", "cli", "dm", "Bot Chat", missing_cwd),
                 ("local-run", "cron", "dm", "muse-patrol · Oct 29 20:36", None), (f"cron_{job_id}_20261029_120000", "cron", None, None, None),
                 ("other-run", "cron", "dm", "someone-else · Oct 29 20:36", None), ("once", "oneshot", "dm", None, None),
                 ("room", "telegram", "group", None, None), ("odd", "local", "dm", None, None)]
@@ -94,8 +95,13 @@ def main():
         assert job and job["name"] == "muse-patrol" and job.get("workdir") is None, job
         with profile_scope(home):
             pause_job(job["id"], reason="user pause")
+            update_job(job["id"], {"no_agent": True, "model": "custom-model", "provider": "custom-provider",
+                                    "reasoning": {"effort": "low"}})
+        before = host.cron.job("patrol")
         again = host.cron.ensure("patrol", schedule="every 1h", entry=entry, prompt="Patrol v2.")
         assert again["id"] == job["id"] and not again["enabled"] and again["prompt"] == "Patrol v2.", again
+        assert all(again.get(field) == before.get(field) for field in
+                   ("id", "schedule", "deliver", "enabled", "model", "provider", "reasoning", "no_agent")), again
         script = home / "scripts" / "hermes-muse" / "hermes-muse-patrol.py"
         ran = subprocess.run([sys.executable, str(script)], cwd=base, capture_output=True, text=True, check=True)
         assert json.loads(ran.stdout) == {"home": str(home), "job": "patrol"}, ran.stdout

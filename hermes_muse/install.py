@@ -12,7 +12,7 @@ launcher (silent jobs load nothing, so a load may never come), installs again. `
    and runs cron_entry.py. The monthly audit is paused (merged into the weekly digest). Watch jobs get
    the current watch prompt (ensure_watch is also how muse_manage watch_create makes them). The no-agent
    `deliver` job has no prompt; the finished 0.4.1 one-shot delivery jobs whose notice settled are removed.
-5. Create or refresh the Health no_agent cron and resume the jobs a cancelled rollback paused (user pauses stay).
+5. Create or refresh the Health wording cron and resume the jobs a cancelled rollback paused (user pauses stay).
 6. Record what was installed in muse/installed.json and remove the marker.
 """
 import hashlib

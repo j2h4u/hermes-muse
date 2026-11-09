@@ -23,7 +23,7 @@
 | dream、alignment、人物/群组页、工作经验 | 模型 | 经 `content_write` 按 revision CAS 写入 |
 | 原生记忆写入回执 | 代码 | failed/staged 的写入在主会话提示一次 |
 | 周报 | 模型 | 只用 Health 摘要和 7 天计数；只提建议，不改任何东西 |
-| 健康检查与告警 | 代码 | probe 与 invariant 写入 `muse/health.json`；主会话、Muse 页面、cron stdout、可选 `health_deliver` |
+| 健康检查与告警 | 代码 + 模型 | probe 与 invariant 写入 `muse/health.json`；主会话、Muse 页面、模型整理变化的告警、可选 `health_deliver` |
 | 日历视图 | 代码 + 模型 | `calendar_view` 计算窗口与合并；读日历由模型完成 |
 | 遗忘 | 代码 | 清空 payload 并写 tombstone；Hermes 会话历史和原生 memory 不在 Muse 范围内 |
 | 从 0.3.x 迁移与回滚 | 代码 | `install.install`、`scripts/cutover.py` |

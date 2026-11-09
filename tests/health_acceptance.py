@@ -1,7 +1,7 @@
 """WP3 Health acceptance and contract check on synthetic temporary homes (design 2.8, 7.3 A3/A4/A7–A10).
 
 Reproduces the audited failures on a native Hermes + Store v2 home, re-checks a migrated 0.3.16 store,
-and verifies health.json, the four alert exits, read-only Store access and the no_agent entrypoint.
+and verifies health.json, the four alert exits, read-only Store access and the agent wake gate.
 Run with a Hermes interpreter: PYTHONPATH=/path/to/hermes-agent python tests/health_acceptance.py
 """
 import hashlib
@@ -195,16 +195,34 @@ def main():
         check("dashboard exit: /health serves health.json", served == health.load(home)
               and any(r.path.endswith("/health") for r in api.router.routes), {"level": served.get("level")})
 
-        # -- the no_agent cron entrypoint ----------------------------------------------------------
+        # Health must wake a wording agent, including an upgrade from the old raw-output job.
+        legacy = host.cron.ensure("health", schedule="every 30m", entry=PROJECT / "health_entry.py",
+                                  deliver="bot-chat", no_agent=True)
+        from cron.jobs import pause_job, update_job
+        from hermes_muse.host import profile_scope
+        with profile_scope(home):
+            update_job(legacy["id"], {"model": "custom-model", "provider": "custom-provider", "reasoning": {"effort": "low"}})
+            pause_job(legacy["id"], reason="user pause")
+        legacy = host.cron.job("health")
         cron_job = health.ensure_cron(host, "bot-chat")
+        check("health refresh removes raw-output mode and loads companion wording",
+              cron_job["id"] == legacy["id"] and not cron_job["no_agent"]
+              and "hermes-muse:companion" in cron_job["skills"] and "[SILENT]" in cron_job["prompt"], cron_job["id"])
+        check("health migration preserves job settings",
+              all(cron_job.get(field) == legacy.get(field) for field in
+                  ("id", "schedule", "deliver", "enabled", "model", "provider", "reasoning")), cron_job["id"])
         launcher = home / "scripts" / "hermes-muse" / "hermes-muse-health.py"
         ran = subprocess.run([sys.executable, str(launcher)], cwd=base, capture_output=True, text=True,
                              env={**os.environ, "PYTHONPATH": os.pathsep.join(p for p in sys.path if p)})
         report3 = health.load(home)
-        check("no_agent entry runs the check and rewrites health.json",
-              cron_job["no_agent"] and cron_job["schedule_display"] == "every 30m" and ran.returncode == 0
+        check("health entry runs the check and rewrites health.json",
+              not cron_job["no_agent"] and cron_job["schedule_display"] == "every 30m" and ran.returncode == 0
               and report3["generated_ts"] > now + 60 - 120 and report3["generated_ts"] != report2["generated_ts"],
               {"rc": ran.returncode, "stderr": ran.stderr[-300:]})
+        unchanged = subprocess.run([sys.executable, str(launcher)], cwd=base, capture_output=True, text=True,
+                                   env={**os.environ, "PYTHONPATH": os.pathsep.join(p for p in sys.path if p)})
+        check("unchanged health explicitly suppresses agent wake (empty stdout would wake it)",
+              unchanged.returncode == 0 and json.loads(unchanged.stdout)["wakeAgent"] is False, unchanged.stdout)
         again = health.ensure_cron(host, "bot-chat")
         check("backup exit: health_deliver is a second route of the health job (Hermes delivers its stdout to both); "
               "no job per alert", cron_job["deliver"] == again["deliver"] == "bot-chat,telegram"

@@ -99,7 +99,7 @@ Muse 不带连接器。patrol 只通过你的 Hermes 已有的工具读邮件、
 
 ## 健康检查
 
-`muse-health` 每 30 分钟运行一次，不调用模型，写出 `muse/health.json`：宿主 probe 加上对信号、packet、通知、投递、run、目标和来源的不变量检查，每项带级别和修复方法。high 项会出现在你下一次私聊和 Muse 页面上；告警集合变化时 cron 会输出；插件设置 `health_deliver`（在 `plugins.entries.hermes-muse.settings` 下）会作为该 job 的第二条路由。Health 不经过通知管道，也不修复任何东西；medium 或 high 项开放超过一天，会以一条通知交给主对话，周报也会列出仍未解决的项。可以问“Muse 健康吗？”，或用 `muse_manage read(kind=status)`。
+`muse-health` 每 30 分钟检查一次，写出 `muse/health.json`：宿主 probe 加上对信号、packet、通知、投递、run、目标和来源的不变量检查，每项带级别和修复方法。high 项会出现在你下一次私聊和 Muse 页面上；告警变化时由模型整理消息，未变化时不唤醒模型；插件设置 `health_deliver`（在 `plugins.entries.hermes-muse.settings` 下）会作为该 job 的第二条路由。Health 不经过通知管道，也不修复任何东西；medium 或 high 项开放超过一天，会以一条通知交给主对话，周报也会列出仍未解决的项。可以问“Muse 健康吗？”，或用 `muse_manage read(kind=status)`。
 
 ## 使用
 

@@ -140,8 +140,9 @@ def part_install(home, ids):
           and refreshed["monthly-system-audit"]["state"] == "paused" and "weekly digest" in refreshed["monthly-system-audit"]["paused_reason"]
           and jobs[ids["keep-me"]]["prompt"] == "Unrelated user job",
           {k: (j["state"], j["schedule"].get("expr")) for k, j in refreshed.items()})
-    check("install: Health no_agent cron created; 0.3.x prompts (with markers) backed up",
-          health_job and health_job.get("no_agent") and first["health_cron"] == health_job["id"]
+    check("install: Health wording cron created; 0.3.x prompts (with markers) backed up",
+          health_job and not health_job.get("no_agent") and first["health_cron"] == health_job["id"]
+          and "hermes-muse:companion" in health_job["skills"]
           and sorted(json.loads((home / PROMPTS_BACKUP).read_text())) == sorted(ids[k] for k in V1_KEYS),
           {"health": health_job and health_job["name"], "jobs": len(jobs)})
     deliver_job = jobs.get(first["jobs"]["deliver"]) or {}
@@ -257,14 +258,14 @@ def part_hooks(home, ids):
     started = time.monotonic()
     hooks = runtime.register(ctx, plugin_root=ROOT)
     took = time.monotonic() - started
-    installs = [t for t in threading.enumerate() if t.name == "hermes-muse/hermes-muse-install"]
+    installs = [t for t in threading.enumerate() if t.name == "hermes-muse-install"]
     [t.join() for t in installs]
     names = [c[0] for c in ctx.calls]
     marks = {p.name: p.read_text() for p in (home / "muse" / "loaded").iterdir()}
     ctx.calls.clear()
     ctx._load_abandoned = True  # Hermes passed its load deadline
     runtime.register(ctx, plugin_root=ROOT)
-    [t.join() for t in threading.enumerate() if t.name == "hermes-muse/hermes-muse-install"]
+    [t.join() for t in threading.enumerate() if t.name == "hermes-muse-install"]
     kept = (home / "muse" / "loaded" / str(os.getpid())).read_text()
     check("register: registrations only (install in the background, no Store opened), this process marked loaded; a "
           "late abandoned load does not undo it", installs and took < 2 and marks.get(str(os.getpid())) == "ok"

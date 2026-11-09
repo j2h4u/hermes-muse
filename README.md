@@ -105,7 +105,7 @@ Settings in the profile's Hermes `config.yaml` that Muse reads or depends on. Qu
 
 ## Health
 
-`muse-health` runs every 30 minutes without a model and writes `muse/health.json`: host probes plus invariants over signals, packets, notices, deliveries, runs, goals and sources, each with a level and a fix. A high item appears in your next private conversation and on the Muse page; the cron prints when the alert set changes; the plugin setting `health_deliver` (under `plugins.entries.hermes-muse.settings`) is added as a second route of that job. Health never goes through the notice pipeline and never repairs anything; a medium or high item still open after a day is passed to the main session as one notice, and the weekly digest lists what stays open. Ask "what is Muse's health?" or `muse_manage read(kind=status)`.
+`muse-health` checks every 30 minutes and writes `muse/health.json`: host probes plus invariants over signals, packets, notices, deliveries, runs, goals and sources, each with a level and a fix. A high item appears in your next private conversation and on the Muse page; when alerts change, an agent phrases the update, while unchanged alerts do not wake it. The plugin setting `health_deliver` (under `plugins.entries.hermes-muse.settings`) is added as a second route of that job. Health never goes through the notice pipeline and never repairs anything; a medium or high item still open after a day is passed to the main session as one notice, and the weekly digest lists what stays open. Ask "what is Muse's health?" or `muse_manage read(kind=status)`.
 
 ## Use
 

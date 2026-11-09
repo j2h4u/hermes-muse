@@ -25,7 +25,7 @@ What code guarantees and what is left to the model. **Code**: deterministic, cov
 | Dreams, alignment, people and group pages, working lessons | Model | written through `content_write` with revision CAS |
 | Native memory write receipts | Code | failed or staged writes shown once in the main session |
 | Weekly digest | Model | from the Health summary and 7-day counts only; suggestions, no changes |
-| Health and alerts | Code | probes and invariants in `muse/health.json`; main session, Muse page, cron stdout, optional `health_deliver` |
+| Health and alerts | Code + model | probes and invariants in `muse/health.json`; main session, Muse page, agent-worded changes and optional `health_deliver` |
 | Calendar views | Code + Model | `calendar_view` window and merge; reading the calendars is the model's |
 | Forget | Code | clears the payload, writes a tombstone; Hermes history and native memory are outside Muse |
 | Migration from 0.3.x and rollback | Code | `install.install`, `scripts/cutover.py` |

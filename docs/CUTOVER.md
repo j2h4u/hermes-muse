@@ -18,7 +18,7 @@ Every step is `PYTHONPATH=<hermes-agent> <hermes python> scripts/cutover.py <ste
    - saves the 0.3.x job prompts to `muse/backup/cron-prompts-0.3.json` (once);
    - refreshes the Muse jobs in place under their 0.3.x names (ids, schedules, routes and pauses are kept),
      pauses `muse-monthly-system-audit` (merged into the weekly digest), creates the `muse-deliver` and
-     `muse-health` no_agent jobs and removes settled 0.4.1 one-shot delivery jobs;
+     `muse-health` job and removes settled 0.4.1 one-shot delivery jobs;
    - records the install in `muse/installed.json` and removes the marker. A failed install keeps the marker and
      its error; jobs stay silent, the main session says so and the next load retries. `apply` repeats the install
      without a gateway (or on a copy). A process killed mid-install needs nothing from you: the next load or Muse

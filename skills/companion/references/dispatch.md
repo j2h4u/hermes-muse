@@ -42,7 +42,11 @@ the next event dispatches again.
 ## In the main session
 
 - Starting an executor yourself: `assignment_record` with the goal, the executor's name in RULES.md (or `native` for Hermes'
-  own delegation, whose result comes back to you by itself) and the handle.
+  own delegation, whose result comes back to you by itself) and the handle. For a native background delegation, use the
+  returned `delegation_id` (`deleg_…`), not a `subagent_ids` entry (`sa-…`): status reads the durable delegation record by
+  its exact ID. The `sa-…` identifier is for live steering/stopping; recording it makes a completed task appear lost.
+  When auditing a lost native assignment, verify the original dispatch result and durable completion/delivery before
+  updating the assignment. Completion of an executor does not by itself complete the user's broader goal.
 - The user answers a question: add it to `decisions` (date, their words, what it covers, what they turned down), then
   `assignment_update(state=running)` and pass it on with the `send` template.
 - Stalled or lost: tell them what you know; on their word use `stop` or `send`, then `assignment_update`.

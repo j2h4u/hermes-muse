@@ -19,3 +19,10 @@ Generated launchers live together in `scripts/hermes-muse/`. Installation moves 
 flat launchers through the native cron API, preserving job IDs, settings and history, and removes
 obsolete generated files only after no job references them. User scripts stay untouched.
 Upstream 0.5.3 does not supersede the semantic review, full-turn or cross-batch synthesis changes.
+
+Health keeps the independent diagnostic check but sends changed alerts to an agent for concise,
+user-facing wording; unchanged alerts suppress the agent wake. Refreshing an existing health job
+updates only its no-agent setting without replacing its ID or user settings. Other existing jobs keep
+their no-agent setting. This preserves
+the deployed fix for raw diagnostic reports. The companion dispatch reference also specifies the
+native delegation ID used for durable status checks. Reassess both changes on upstream updates.

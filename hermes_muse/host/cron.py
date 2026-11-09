@@ -128,6 +128,16 @@ class Cron(Part):
                 return create_job(prompt=prompt, schedule=schedule, name=f"muse-{key}", deliver=deliver,
                                   skills=skills, script=script, no_agent=no_agent)
 
+    @tolerant(lambda: None)
+    def enable_health_agent(self, job_id):
+        """Migrate only the owned health job from raw output to agent wording."""
+        job = self.job("health")
+        if not job or job["id"] != job_id:
+            return None
+        from cron.jobs import update_job
+        with self.scope():
+            return update_job(job_id, {"no_agent": False})
+
     @tolerant(False)
     def pause(self, job_id, reason):
         """Pause an owned job; a finished one-shot has nothing left to pause."""

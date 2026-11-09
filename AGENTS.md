@@ -112,7 +112,7 @@ owned job 由 `install.JOBS` 定义，cron key 沿用 0.3.x 的名字，这样 j
 
 其他 owned job：
 - `monthly-system-audit` 被暂停，已并入 weekly；
-- `muse-health` 每 30m 运行一次，是 no_agent cron；
+- `muse-health` 每 30m 检查一次，告警集合变化时唤醒模型整理用户可读的消息；
 - 每个 watch 是一个 owned job，由 `install.ensure_watch` 创建或刷新；
 - 0.4.1 遗留的 one-shot `muse-deliver-<delivery_key>` 只读回执，结清后删除（流程 2）。
 
@@ -167,7 +167,7 @@ owned job 由 `install.JOBS` 定义，cron key 沿用 0.3.x 的名字，这样 j
 7. **Health**：`health_entry.py` 调 `health.run()`，写出 `muse/health.json`（`model_input`/`tool_errors` 只统计 Muse 自己的工具 `muse_manage`、`muse_job` 的结果；`plugin_load` 报告运行 job 的 Hermes 进程放弃了 Muse 的加载；`main_session` 绕过授权谓词读 Bot Chat 的用户轮次（`sessions.main_sessions`），近 6 小时有轮次而会话行不是用户的、窗口内有 Muse 工具调用以 `UNRECOGNIZED` 被拒，或超过 1 小时的轮次一条 signal 都没捕获时报 high）。告警有 4 个出口，**都不经过 Notifier**（内核坏了也能被发现）：
    - 主会话注入；
    - Dashboard 的 `/health`；
-   - cron stdout，只在告警集合变化时输出；
+   - cron 在告警集合变化时把诊断交给模型整理，未变化时不唤醒；
    - 可选的 `health_deliver` 备用路由：安装时追加为 health job 的第二个路由（`cron.add_route`，逗号分隔，Hermes 投递到每一个），不为告警单独建 job。
    - **接手通路**：Health 仍只写 `health.json`。medium/high item 开放超过 1 天，tick 里的 `notifier.health_followup` 读这个文件，把它们合成一条通知交给主对话（topic `muse-health`，每个 incident（`id`+`first_seen`）一次；发出前恢复就由代码撤回；patrol 不复核也不能重用这个 topic）；周报列出全部开放 item。
 8. **主会话 hooks**（`hooks.Hooks`，只对 `user` 调用方生效）：
@@ -419,7 +419,7 @@ Hermes 宿主
 6. **prompt 只写行为**，每个 job 不超过 15 行，不写字段表。字段只存在于 action table 和 `packets.SCHEMAS` 中，`skills/companion/references/interface.md` 由代码生成。
 
 ### 5.5 日志与可观测
-- 用 `logging.getLogger(__name__)`；宿主故障记 `warning`；不要用 `print` 输出调试信息。**launcher 的 stdout 就是 Script Output 或投递内容**：`cron_entry.py` 只能打印一行 JSON，唯一例外是 deliver run 打印消息纯文本（非空即投递）；`health_entry.py` 非空即投递。
+- 用 `logging.getLogger(__name__)`；宿主故障记 `warning`；不要用 `print` 输出调试信息。**launcher 的 stdout 就是 Script Output 或投递内容**：`cron_entry.py` 只能打印一行 JSON，唯一例外是 deliver run 打印消息纯文本（非空即投递）；`health_entry.py` 输出诊断或不唤醒的 JSON。
 - 每次状态迁移的 `reason` 用短代码，例如 `ttl`、`receipt:sent:`、`intake:saved`、`update:user`，供 event 日志和 Health 追溯。
 - 可观测性只来自 `event` 表、`health.json` 和 `HostAdapter.faults`。发现新的失败模式时补一条 invariant，不要加遥测。
 
