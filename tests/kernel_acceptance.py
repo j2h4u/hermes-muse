@@ -21,8 +21,8 @@ sys.path.insert(0, str(ROOT))
 from hermes_muse import health, hooks, rules  # noqa: E402
 from hermes_muse.host.sessions import SECRETS, excerpt, memory_result, redact  # noqa: E402
 from hermes_muse.health import invariants  # noqa: E402
-from hermes_muse.kernel import Kernel, assignments, goals, intake, notifier, packets, receipts, records, review, sources, upkeep  # noqa: E402
-from hermes_muse.kernel.common import render  # noqa: E402
+from hermes_muse.kernel import Kernel, assignments, goals, intake, notifier, packets, receipts, records, review, runs, sources, upkeep  # noqa: E402
+from hermes_muse.kernel.common import patch, render  # noqa: E402
 
 UTC = timezone.utc
 T0 = datetime(2026, 10, 29, 10, 0, tzinfo=UTC).timestamp()
@@ -1486,11 +1486,111 @@ def part_native(base):
           {"state": sent["state"], "faults": list(k.adapter.faults)[-2:]})
 
 
+def part_store_concurrency(base):
+    """A WAL reader must not reserve the writer slot (runs_closed and deliver.sweep)."""
+    k = Kernel(make_home(base), adapter=FakeHost(lambda: T0), clock=lambda: T0)
+    store = k.store
+    run = k.start_run("patrol", job_id="patrol", execution_id="live", now=T0)
+    store.set_meta("reader_probe", "committed")
+    locked, release, finished = threading.Event(), threading.Event(), threading.Event()
+    errors, result = [], {}
+
+    def writer():
+        try:
+            with store.atomic():
+                store.set_meta("reader_probe", "uncommitted")
+                locked.set()
+                if not release.wait(25):
+                    raise TimeoutError("reader did not release the test writer")
+        except Exception as exc:
+            errors.append(f"writer: {type(exc).__name__}: {exc}")
+            locked.set()
+
+    def reader():
+        try:
+            result["runs_closed"] = runs.check(k, T0)
+            result["swept"] = notifier.sweep(k)
+            current = store.get(run["id"])
+            assert current is not None
+            result["get"] = current["id"]
+            result["due"] = [e["id"] for e in store.due(T0 + 3 * H)]
+            result["events"] = len(store.events(run["id"]))
+            result["meta"] = store.meta("reader_probe")
+        except Exception as exc:
+            errors.append(f"reader: {type(exc).__name__}: {exc}")
+        finally:
+            finished.set()
+
+    a, b = threading.Thread(target=writer), threading.Thread(target=reader)
+    a.start()
+    try:
+        assert locked.wait(5), "writer did not acquire transaction"
+        b.start()
+        completed_while_locked = finished.wait(18)
+    finally:
+        release.set()
+        a.join(5)
+        if b.ident is not None:
+            b.join(5)
+    check("SQL1 WAL reads and runs_closed/deliver sweep proceed during a write",
+          completed_while_locked and not errors and result == {
+              "runs_closed": 0, "swept": 0, "get": run["id"], "due": [run["id"]],
+              "events": 1, "meta": "committed"} and store.meta("reader_probe") == "uncommitted",
+          json.dumps({"result": result, "errors": errors, "completed_while_locked": completed_while_locked}))
+
+    # A read must not leak its snapshot into the next write. Nested reads must instead
+    # see their own uncommitted writes, and rollback must include entities AND events.
+    stale = store.get(run["id"])
+    assert stale is not None
+    other = Kernel(k.home, adapter=k.adapter, clock=lambda: T0).store
+    patch(other, run["id"], reason="competitor", payload={"counter": 1}, now=T0)
+    rejected = store.transition(run["id"], "running", state=stale["state"], version=stale["version"],
+                                reason="stale", payload={"counter": -1}, now=T0)
+    before = store.events(run["id"])
+    try:
+        with store.atomic():
+            patch(store, run["id"], reason="rollback", payload={"counter": -1}, now=T0)
+            current = store.get(run["id"])
+            assert current is not None and current["payload"]["counter"] == -1
+            assert store.events(run["id"])[-1]["reason"] == "rollback"
+            raise ValueError("rollback probe")
+    except ValueError as exc:
+        assert str(exc) == "rollback probe"
+    current = store.get(run["id"])
+    check("SQL2 nested reads see writes; rollback and stale CAS preserve entity/event state",
+          rejected is None and current is not None and current["payload"]["counter"] == 1
+          and store.events(run["id"]) == before)
+
+    barrier = threading.Barrier(2)
+    failures = []
+
+    def increment(s):
+        try:
+            barrier.wait(5)
+            for _ in range(20):
+                patch(s, run["id"], reason="increment", now=T0,
+                      payload=lambda e: {"counter": e["payload"]["counter"] + 1})
+        except Exception as exc:
+            failures.append(f"{type(exc).__name__}: {exc}")
+
+    workers = [threading.Thread(target=increment, args=(s,)) for s in (store, other)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(20)
+    current = store.get(run["id"])
+    check("SQL3 concurrent read-modify-write keeps BEGIN IMMEDIATE, no upgrade race or lost updates",
+          not failures and not any(worker.is_alive() for worker in workers)
+          and current is not None and current["payload"]["counter"] == 41
+          and len(store.events(run["id"])) == len(before) + 40, json.dumps(failures))
+    return k
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix="muse-kernel-") as temporary:
         base = Path(temporary).resolve()
         kernels = []
-        for name, part in (("source_coverage", part_source_coverage), ("intake", part_intake), ("notifier", part_notifier), ("goals", part_goals), ("drain", part_drain),
+        for name, part in (("store_concurrency", part_store_concurrency), ("source_coverage", part_source_coverage), ("intake", part_intake), ("notifier", part_notifier), ("goals", part_goals), ("drain", part_drain),
                            ("intake_drain", part_intake_drain), ("reviews", part_reviews), ("proposals", part_proposals), ("feed", part_feed), ("upkeep", part_upkeep),
                            ("assignments", part_assignments), ("review", part_review), ("followups", part_followups)):
             (base / name).mkdir()

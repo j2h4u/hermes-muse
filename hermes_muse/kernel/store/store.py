@@ -90,9 +90,25 @@ class Store:
             db.close()
 
     # -- reads -----------------------------------------------------------------------------------
+    @contextmanager
+    def _read(self):
+        """Join an owned write, otherwise use a WAL snapshot without reserving the writer slot.
+
+        The read connection belongs to a separate readonly Store, so a later write on this Store
+        starts BEGIN IMMEDIATE afresh rather than upgrading a stale read snapshot.
+        """
+        db = self._db
+        if db is not None:
+            yield db
+        else:
+            with Store(self.path, readonly=True, clock=self.clock).atomic() as reader:
+                db = reader._db
+                assert db is not None
+                yield db
+
     def get(self, entity_id):
-        with self.atomic():
-            row = self._db.execute(f"SELECT {COLUMNS} FROM entity WHERE id=?", (entity_id,)).fetchone()
+        with self._read() as db:
+            row = db.execute(f"SELECT {COLUMNS} FROM entity WHERE id=?", (entity_id,)).fetchone()
         return entity(row) if row else None
 
     def query(self, kind, *, state=None, natural_key=None, since=None, limit=None):
@@ -108,32 +124,32 @@ class Store:
         sql += " ORDER BY state_since DESC, id"
         if limit is not None:
             sql, args = sql + " LIMIT ?", args + [int(limit)]
-        with self.atomic():
-            return [entity(r) for r in self._db.execute(sql, args)]
+        with self._read() as db:
+            return [entity(r) for r in db.execute(sql, args)]
 
     def due(self, now=None, *, kind=None, limit=None):
         """Non-terminal entities whose deadline has passed, oldest first (uses the kind/state/deadline index)."""
         now = self.clock() if now is None else now
         result = []
-        with self.atomic():
+        with self._read() as db:
             for name, m in MACHINES.items():
                 if kind not in (None, name):
                     continue
                 for state in m.ttl:
-                    result += [entity(r) for r in self._db.execute(
+                    result += [entity(r) for r in db.execute(
                         f"SELECT {COLUMNS} FROM entity WHERE kind=? AND state=? AND deadline<=? ORDER BY deadline",
                         (name, state, now))]
         result.sort(key=lambda e: e["deadline"])
         return result[:limit] if limit is not None else result
 
     def events(self, entity_id):
-        with self.atomic():
-            return [dict(zip(("at", "from_state", "to_state", "reason"), r)) for r in self._db.execute(
+        with self._read() as db:
+            return [dict(zip(("at", "from_state", "to_state", "reason"), r)) for r in db.execute(
                 "SELECT at, from_state, to_state, reason FROM event WHERE entity_id=? ORDER BY at, rowid", (entity_id,))]
 
     def meta(self, key, default=None):
-        with self.atomic():
-            row = self._db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+        with self._read() as db:
+            row = db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
         return json.loads(row[0]) if row else default
 
     # -- writes ----------------------------------------------------------------------------------
