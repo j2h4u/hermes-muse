@@ -255,10 +255,9 @@ def private_user(db):
     labels = ",".join(f"'{s}'" for s in surfaces)
     tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     if "state_meta" in tables and {"session_key", "chat_id", "user_id"} <= columns:
-        from hermes_state_local import POLICY_PREFIX
         db.create_function("muse_local_surface", 5, lambda *row: local_surface(*row, surfaces=surfaces), deterministic=True)
         native = ("(SELECT muse_local_surface(value,s.id,s.session_key,s.chat_id,s.user_id) "
-                  f"FROM state_meta WHERE key = '{POLICY_PREFIX}' || s.id)")
+                  "FROM state_meta WHERE key = 'gateway.local_policy.v1:' || s.id)")
     if "created_source" in columns:
         source = f"CASE WHEN s.source = 'local' AND s.created_source IN ({labels}) THEN s.created_source ELSE s.source END"
         guards.append("(s.created_source IS NULL OR s.created_source = '' OR s.created_source IN ("
